@@ -1,0 +1,38 @@
+name: Homebrew
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  formula:
+    name: Formula
+    runs-on: macos-latest
+    env:
+      FORMULA: shellcheck-readability
+      TAP: yowainwright/shellcheck_readability
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+
+      - name: Tap formula
+        run: brew tap "$TAP" "$GITHUB_WORKSPACE"
+
+      - name: Trust tap
+        run: brew trust "$TAP"
+
+      - name: Install formula from HEAD
+        run: brew install --HEAD --build-from-source "$FORMULA"
+
+      - name: Test formula
+        run: brew test "$FORMULA"
+
+      - name: Audit formula
+        run: brew audit --formula "$FORMULA"

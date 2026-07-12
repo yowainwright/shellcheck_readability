@@ -1,0 +1,5 @@
+* text=auto eol=lf
+*.bash linguist-language=Shell
+*.sh linguist-language=Shell
+bin/shellcheck-readability linguist-language=Shell
+Formula/*.rb linguist-language=Ruby

@@ -1,0 +1,62 @@
+# shellcheck shell=bash
+# shellcheck disable=SC2034
+
+VERSION="0.1.0"
+OUTPUT_FORMAT="text"
+EXIT_ZERO="0"
+CONFIG_PATH=""
+CLI_SELECT=""
+CLI_IGNORE=""
+CURRENT_LINE_TEXT=""
+
+MAX_EXPRESSION_OPERATORS="4"
+MAX_CONDITION_OPERATORS="0"
+MAX_CONTROL_FLOW_DEPTH="3"
+MAX_FUNCTION_LINES="20"
+MIN_CASE_CHAIN_LENGTH="3"
+MIN_DIRNAME_MATCH_DEPTH="3"
+MIN_OBJECT_LOOKUP_CHAIN_LENGTH="3"
+
+SELECT=()
+IGNORE=()
+EXCLUDE=()
+EXECUTABLE_ENTRY_PATTERNS=()
+DIRECT_SHELL_ENTRY_PATTERNS=()
+EXECUTABLE_RUNTIMES=()
+TARGETS=()
+FILES=()
+DIAG_PATHS=()
+DIAG_LINES=()
+DIAG_COLUMNS=()
+DIAG_CODES=()
+DIAG_RULES=()
+DIAG_MESSAGES=()
+
+init_defaults() {
+  SELECT+=("LEG")
+  add_default_excludes
+  add_default_entry_patterns
+  add_default_runtimes
+}
+
+add_default_excludes() {
+  EXCLUDE+=(".git")
+  EXCLUDE+=(".beads")
+  EXCLUDE+=("node_modules")
+  EXCLUDE+=("vendor")
+}
+
+add_default_entry_patterns() {
+  EXECUTABLE_ENTRY_PATTERNS+=("bin/*.sh")
+  EXECUTABLE_ENTRY_PATTERNS+=("scripts/*.sh")
+  DIRECT_SHELL_ENTRY_PATTERNS+=("bin/*.sh")
+  DIRECT_SHELL_ENTRY_PATTERNS+=("scripts/*.sh")
+  DIRECT_SHELL_ENTRY_PATTERNS+=("*.sh")
+}
+
+add_default_runtimes() {
+  EXECUTABLE_RUNTIMES+=("bash")
+  EXECUTABLE_RUNTIMES+=("sh")
+  EXECUTABLE_RUNTIMES+=("zsh")
+  EXECUTABLE_RUNTIMES+=("ksh")
+}
