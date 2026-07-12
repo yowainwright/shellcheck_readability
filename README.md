@@ -41,20 +41,355 @@ Selectors use the same model as the other legibility tools: `select`, `ignore`, 
 
 | Code | Rule | Summary |
 | --- | --- | --- |
-| `LEG001` | `max-expression-operators` | Limit `&&`, `||`, and pipeline-heavy shell expressions. |
-| `LEG002` | `hoist-if-operators` | Prefer named checks before operator-heavy conditions. |
-| `LEG003` | `max-control-flow-depth` | Limit nested control flow. |
-| `LEG005` | `no-quadratic-patterns` | Flag nested loops. |
-| `LEG009` | `prefer-early-return` | Avoid `else` after a branch exits. |
-| `LEG010` | `prefer-guard-clauses` | Prefer guard clauses inside functions. |
-| `LEG016` | `require-executable-shebang` | Require executable shell entries to have a shebang. |
-| `LEG017` | `no-direct-shell-bin-smoke` | Prefer installed-command smoke tests over direct shell entry files. |
-| `LEG024` | `prefer-object-lookup` | Prefer `case` or lookup-style flow over repeated equality checks. |
-| `LEG025` | `require-filename-matches-dirname` | Require files in named subdirectories to match the directory name. |
-| `LEG026` | `no-mixed-filename-casing` | Avoid filenames that mix casing conventions. |
-| `LEG034` | `prefer-case-over-long-if-chain` | Prefer `case` over long `elif` chains comparing the same value. |
-| `LEG035` | `no-bool-literal-args` | Avoid boolean literal arguments. |
-| `LEG038` | `max-function-lines` | Keep shell functions within a focused line budget. |
+| `LEG001` | [max-expression-operators](#max-expression-operators) | Limit `&&`, `||`, and pipeline-heavy shell expressions. |
+| `LEG002` | [hoist-if-operators](#hoist-if-operators) | Prefer named checks before operator-heavy conditions. |
+| `LEG003` | [max-control-flow-depth](#max-control-flow-depth) | Limit nested control flow. |
+| `LEG005` | [no-quadratic-patterns](#no-quadratic-patterns) | Flag nested loops. |
+| `LEG009` | [prefer-early-return](#prefer-early-return) | Avoid `else` after a branch exits. |
+| `LEG010` | [prefer-guard-clauses](#prefer-guard-clauses) | Prefer guard clauses inside functions. |
+| `LEG016` | [require-executable-shebang](#require-executable-shebang) | Require executable shell entries to have a shebang. |
+| `LEG017` | [no-direct-shell-bin-smoke](#no-direct-shell-bin-smoke) | Prefer installed-command smoke tests over direct shell entry files. |
+| `LEG024` | [prefer-object-lookup](#prefer-object-lookup) | Prefer `case` or lookup-style flow over repeated equality checks. |
+| `LEG025` | [require-filename-matches-dirname](#require-filename-matches-dirname) | Require files in named subdirectories to match the directory name. |
+| `LEG026` | [no-mixed-filename-casing](#no-mixed-filename-casing) | Avoid filenames that mix casing conventions. |
+| `LEG034` | [prefer-case-over-long-if-chain](#prefer-case-over-long-if-chain) | Prefer `case` over long `elif` chains comparing the same value. |
+| `LEG035` | [no-bool-literal-args](#no-bool-literal-args) | Avoid boolean literal arguments. |
+| `LEG038` | [max-function-lines](#max-function-lines) | Keep shell functions within a focused line budget. |
+
+---
+
+<a id="max-expression-operators"></a>
+
+### `max-expression-operators`
+
+Limit readable operators inside a single command expression.
+
+#### options
+
+- `max-expression-operators`: allowed expression operators. Default: `4`.
+
+#### do / don't
+
+```diff
+- build && test && package && publish && notify
++ build
++ test
++ package
++ publish
++ notify
+```
+
+---
+
+<a id="hoist-if-operators"></a>
+
+### `hoist-if-operators`
+
+Prefer a named check before an operator-heavy `if`, `elif`, `while`, or `until` condition.
+
+#### options
+
+- `max-if-operators`: allowed condition operators. Default: `0`.
+
+#### do / don't
+
+```diff
+- if [[ -n "$user" && -n "$email" ]]; then
++ user_has_contact() {
++   [[ -n "$user" && -n "$email" ]]
++ }
++
++ if user_has_contact; then
+    send_invite "$user"
+  fi
+```
+
+---
+
+<a id="max-control-flow-depth"></a>
+
+### `max-control-flow-depth`
+
+Limit nested branches and loops so the main path stays easy to scan.
+
+#### options
+
+- `max-control-flow-depth`: allowed nested control-flow depth. Default: `3`.
+
+#### do / don't
+
+```diff
+- if [[ -n "$repo" ]]; then
+-   if git diff --quiet; then
+-     if [[ "$target" == "release" ]]; then
+-       publish_release
+-     fi
+-   fi
+- fi
++ [[ -n "$repo" ]] || exit 1
++ git diff --quiet || exit 1
++ [[ "$target" == "release" ]] || exit 0
++ publish_release
+```
+
+---
+
+<a id="no-quadratic-patterns"></a>
+
+### `no-quadratic-patterns`
+
+Flag nested loops that are likely to become repeated scans.
+
+#### options
+
+None.
+
+#### do / don't
+
+```diff
+- for user in "${users[@]}"; do
+-   for owner in "${owners[@]}"; do
+-     [[ "$user" == "$owner" ]] && print_owner "$user"
+-   done
+- done
++ declare -A owner_lookup=()
++ for owner in "${owners[@]}"; do
++   owner_lookup["$owner"]="1"
++ done
++ for user in "${users[@]}"; do
++   [[ -n "${owner_lookup[$user]:-}" ]] && print_owner "$user"
++ done
+```
+
+---
+
+<a id="prefer-early-return"></a>
+
+### `prefer-early-return`
+
+Avoid an `else` branch after the previous branch already exits.
+
+#### options
+
+None.
+
+#### do / don't
+
+```diff
+  if [[ -z "$config" ]]; then
+    return 1
+- else
+-   load_config "$config"
+  fi
++ load_config "$config"
+```
+
+---
+
+<a id="prefer-guard-clauses"></a>
+
+### `prefer-guard-clauses`
+
+Prefer guard clauses over wrapping a whole function body in one branch.
+
+#### options
+
+None.
+
+#### do / don't
+
+```diff
+  deploy() {
+-   if [[ -n "$target" ]]; then
+-     build
+-     upload "$target"
+-   fi
++   [[ -n "$target" ]] || return 1
++   build
++   upload "$target"
+  }
+```
+
+---
+
+<a id="require-executable-shebang"></a>
+
+### `require-executable-shebang`
+
+Require configured executable entry files to start with an accepted shell shebang.
+
+#### options
+
+- `executable-entry-patterns`: paths treated as executable shell entries.
+- `executable-runtimes`: accepted shebang runtimes. Default includes Bash, sh, zsh, and ksh.
+
+#### do / don't
+
+```diff
++ #!/usr/bin/env bash
++
+  set -u
+  main "$@"
+```
+
+---
+
+<a id="no-direct-shell-bin-smoke"></a>
+
+### `no-direct-shell-bin-smoke`
+
+Prefer smoke-testing the installed command instead of invoking entry scripts directly with a shell.
+
+#### options
+
+- `direct-shell-entry-patterns`: direct entry paths that should not be shell-invoked in smoke tests.
+- `executable-runtimes`: shell runtimes checked in commands.
+
+#### do / don't
+
+```diff
+- bash bin/shellcheck-readability --version
++ shellcheck-readability --version
+```
+
+---
+
+<a id="prefer-object-lookup"></a>
+
+### `prefer-object-lookup`
+
+Prefer `case` or lookup-style flow over long repeated equality checks.
+
+#### options
+
+- `min-object-lookup-chain-length`: repeated checks before reporting. Default: `3`.
+
+#### do / don't
+
+```diff
+- if [[ "$mode" == "dev" || "$mode" == "test" || "$mode" == "ci" ]]; then
+-   enable_debug
+- fi
++ case "$mode" in
++   dev|test|ci) enable_debug ;;
++ esac
+```
+
+---
+
+<a id="require-filename-matches-dirname"></a>
+
+### `require-filename-matches-dirname`
+
+Require files in named subdirectories to match the directory name.
+
+#### options
+
+- `min-dirname-match-depth`: minimum parent depth before checking. Default: `3`.
+
+#### do / don't
+
+```diff
+- scripts/deploy/run.sh
++ scripts/deploy/deploy.sh
+```
+
+---
+
+<a id="no-mixed-filename-casing"></a>
+
+### `no-mixed-filename-casing`
+
+Avoid filenames that mix casing conventions.
+
+#### options
+
+None.
+
+#### do / don't
+
+```diff
+- scripts/deployUser.sh
++ scripts/deploy-user.sh
+```
+
+---
+
+<a id="prefer-case-over-long-if-chain"></a>
+
+### `prefer-case-over-long-if-chain`
+
+Prefer `case` over long `elif` chains comparing the same value.
+
+#### options
+
+- `min-case-chain-length`: repeated comparisons before reporting. Default: `3`.
+
+#### do / don't
+
+```diff
+- if [[ "$command" == "build" ]]; then
+-   build
+- elif [[ "$command" == "test" ]]; then
+-   test_all
+- elif [[ "$command" == "publish" ]]; then
+-   publish
+- fi
++ case "$command" in
++   build) build ;;
++   test) test_all ;;
++   publish) publish ;;
++ esac
+```
+
+---
+
+<a id="no-bool-literal-args"></a>
+
+### `no-bool-literal-args`
+
+Avoid boolean literal arguments whose meaning is only clear at the call site.
+
+#### options
+
+None.
+
+#### do / don't
+
+```diff
+- create_user "$name" true false
++ send_email="true"
++ is_admin="false"
++ create_user "$name" "$send_email" "$is_admin"
+```
+
+---
+
+<a id="max-function-lines"></a>
+
+### `max-function-lines`
+
+Keep shell functions within a focused line budget.
+
+#### options
+
+- `max-function-lines`: maximum lines in a function. Default: `20`.
+
+#### do / don't
+
+```diff
+  deploy() {
+-   validate_env
+-   install_dependencies
+-   build_assets
+-   upload_assets
+-   restart_service
+-   notify_release
++   prepare_release
++   publish_release
++   notify_release
+  }
+```
 
 ## Rule Function Testing
 
