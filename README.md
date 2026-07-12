@@ -41,20 +41,20 @@ Selectors use the same model as the other legibility tools: `select`, `ignore`, 
 
 | Code | Rule | Summary |
 | --- | --- | --- |
-| `LEG001` | [max-expression-operators](#max-expression-operators) | Limit `&&`, `||`, and pipeline-heavy shell expressions. |
-| `LEG002` | [hoist-if-operators](#hoist-if-operators) | Prefer named checks before operator-heavy conditions. |
-| `LEG003` | [max-control-flow-depth](#max-control-flow-depth) | Limit nested control flow. |
-| `LEG005` | [no-quadratic-patterns](#no-quadratic-patterns) | Flag nested loops. |
-| `LEG009` | [prefer-early-return](#prefer-early-return) | Avoid `else` after a branch exits. |
-| `LEG010` | [prefer-guard-clauses](#prefer-guard-clauses) | Prefer guard clauses inside functions. |
-| `LEG016` | [require-executable-shebang](#require-executable-shebang) | Require executable shell entries to have a shebang. |
-| `LEG017` | [no-direct-shell-bin-smoke](#no-direct-shell-bin-smoke) | Prefer installed-command smoke tests over direct shell entry files. |
-| `LEG024` | [prefer-object-lookup](#prefer-object-lookup) | Prefer `case` or lookup-style flow over repeated equality checks. |
-| `LEG025` | [require-filename-matches-dirname](#require-filename-matches-dirname) | Require files in named subdirectories to match the directory name. |
-| `LEG026` | [no-mixed-filename-casing](#no-mixed-filename-casing) | Avoid filenames that mix casing conventions. |
-| `LEG034` | [prefer-case-over-long-if-chain](#prefer-case-over-long-if-chain) | Prefer `case` over long `elif` chains comparing the same value. |
-| `LEG035` | [no-bool-literal-args](#no-bool-literal-args) | Avoid boolean literal arguments. |
-| `LEG038` | [max-function-lines](#max-function-lines) | Keep shell functions within a focused line budget. |
+| `LEG001` | [max-expression-operators](#max-expression-operators-diff) | Limit `&&`, `||`, and pipeline-heavy shell expressions. |
+| `LEG002` | [hoist-if-operators](#hoist-if-operators-diff) | Prefer named checks before operator-heavy conditions. |
+| `LEG003` | [max-control-flow-depth](#max-control-flow-depth-diff) | Limit nested control flow. |
+| `LEG005` | [no-quadratic-patterns](#no-quadratic-patterns-diff) | Flag nested loops. |
+| `LEG009` | [prefer-early-return](#prefer-early-return-diff) | Avoid `else` after a branch exits. |
+| `LEG010` | [prefer-guard-clauses](#prefer-guard-clauses-diff) | Prefer guard clauses inside functions. |
+| `LEG016` | [require-executable-shebang](#require-executable-shebang-diff) | Require executable shell entries to have a shebang. |
+| `LEG017` | [no-direct-shell-bin-smoke](#no-direct-shell-bin-smoke-diff) | Prefer installed-command smoke tests over direct shell entry files. |
+| `LEG024` | [prefer-object-lookup](#prefer-object-lookup-diff) | Prefer `case` or lookup-style flow over repeated equality checks. |
+| `LEG025` | [require-filename-matches-dirname](#require-filename-matches-dirname-diff) | Require files in named subdirectories to match the directory name. |
+| `LEG026` | [no-mixed-filename-casing](#no-mixed-filename-casing-diff) | Avoid filenames that mix casing conventions. |
+| `LEG034` | [prefer-case-over-long-if-chain](#prefer-case-over-long-if-chain-diff) | Prefer `case` over long `elif` chains comparing the same value. |
+| `LEG035` | [no-bool-literal-args](#no-bool-literal-args-diff) | Avoid boolean literal arguments. |
+| `LEG038` | [max-function-lines](#max-function-lines-diff) | Keep shell functions within a focused line budget. |
 
 ---
 
@@ -67,6 +67,8 @@ Limit readable operators inside a single command expression.
 #### options
 
 - `max-expression-operators`: allowed expression operators. Default: `4`.
+
+<a id="max-expression-operators-diff"></a>
 
 #### do / don't
 
@@ -90,6 +92,8 @@ Prefer a named check before an operator-heavy `if`, `elif`, `while`, or `until` 
 #### options
 
 - `max-if-operators`: allowed condition operators. Default: `0`.
+
+<a id="hoist-if-operators-diff"></a>
 
 #### do / don't
 
@@ -115,6 +119,8 @@ Limit nested branches and loops so the main path stays easy to scan.
 #### options
 
 - `max-control-flow-depth`: allowed nested control-flow depth. Default: `3`.
+
+<a id="max-control-flow-depth-diff"></a>
 
 #### do / don't
 
@@ -143,6 +149,8 @@ Flag nested loops that are likely to become repeated scans.
 #### options
 
 None.
+
+<a id="no-quadratic-patterns-diff"></a>
 
 #### do / don't
 
@@ -173,6 +181,8 @@ Avoid an `else` branch after the previous branch already exits.
 
 None.
 
+<a id="prefer-early-return-diff"></a>
+
 #### do / don't
 
 ```diff
@@ -195,6 +205,8 @@ Prefer guard clauses over wrapping a whole function body in one branch.
 #### options
 
 None.
+
+<a id="prefer-guard-clauses-diff"></a>
 
 #### do / don't
 
@@ -223,6 +235,8 @@ Require configured executable entry files to start with an accepted shell sheban
 - `executable-entry-patterns`: paths treated as executable shell entries.
 - `executable-runtimes`: accepted shebang runtimes. Default includes Bash, sh, zsh, and ksh.
 
+<a id="require-executable-shebang-diff"></a>
+
 #### do / don't
 
 ```diff
@@ -245,6 +259,8 @@ Prefer smoke-testing the installed command instead of invoking entry scripts dir
 - `direct-shell-entry-patterns`: direct entry paths that should not be shell-invoked in smoke tests.
 - `executable-runtimes`: shell runtimes checked in commands.
 
+<a id="no-direct-shell-bin-smoke-diff"></a>
+
 #### do / don't
 
 ```diff
@@ -263,6 +279,8 @@ Prefer `case` or lookup-style flow over long repeated equality checks.
 #### options
 
 - `min-object-lookup-chain-length`: repeated checks before reporting. Default: `3`.
+
+<a id="prefer-object-lookup-diff"></a>
 
 #### do / don't
 
@@ -287,6 +305,8 @@ Require files in named subdirectories to match the directory name.
 
 - `min-dirname-match-depth`: minimum parent depth before checking. Default: `3`.
 
+<a id="require-filename-matches-dirname-diff"></a>
+
 #### do / don't
 
 ```diff
@@ -306,6 +326,8 @@ Avoid filenames that mix casing conventions.
 
 None.
 
+<a id="no-mixed-filename-casing-diff"></a>
+
 #### do / don't
 
 ```diff
@@ -324,6 +346,8 @@ Prefer `case` over long `elif` chains comparing the same value.
 #### options
 
 - `min-case-chain-length`: repeated comparisons before reporting. Default: `3`.
+
+<a id="prefer-case-over-long-if-chain-diff"></a>
 
 #### do / don't
 
@@ -354,6 +378,8 @@ Avoid boolean literal arguments whose meaning is only clear at the call site.
 
 None.
 
+<a id="no-bool-literal-args-diff"></a>
+
 #### do / don't
 
 ```diff
@@ -374,6 +400,8 @@ Keep shell functions within a focused line budget.
 #### options
 
 - `max-function-lines`: maximum lines in a function. Default: `20`.
+
+<a id="max-function-lines-diff"></a>
 
 #### do / don't
 
