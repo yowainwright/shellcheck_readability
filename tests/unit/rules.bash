@@ -27,6 +27,10 @@ main() {
   test_bool_literal_args
   test_direct_shell_bin_smoke
   test_max_function_lines
+  test_prefer_functions
+  test_prefer_functions_allows_dispatch
+  test_use_defaults_in_functions
+  test_use_defaults_in_functions_allows_defaults
   printf '%s\n' "ok"
 }
 
@@ -80,13 +84,46 @@ test_max_function_lines() {
   assert_has_code "LEG038"
 }
 
+test_prefer_functions() {
+  reset_test_state
+  check_prefer_functions "example.sh" "5" "docker build ."
+  assert_has_code "LEG039"
+}
+
+test_prefer_functions_allows_dispatch() {
+  reset_test_state
+  FUNCTION_NAMES+=("main")
+  check_prefer_functions "example.sh" "12" 'main "$@"'
+  assert_no_diagnostics
+}
+
+test_use_defaults_in_functions() {
+  reset_test_state
+  IN_FUNCTION="1"
+  check_use_defaults_in_functions "example.sh" "6" 'local target="$1"'
+  assert_has_code "LEG040"
+}
+
+test_use_defaults_in_functions_allows_defaults() {
+  reset_test_state
+  IN_FUNCTION="1"
+  check_use_defaults_in_functions "example.sh" "6" 'local target="${1:-dev}"'
+  assert_no_diagnostics
+}
+
 assert_has_code() {
-  local expected="$1"
+  local expected="${1:-}"
   local code
   for code in "${DIAG_CODES[@]}"; do
     [[ "$code" == "$expected" ]] && return
   done
   printf 'expected %s, got %s\n' "$expected" "${DIAG_CODES[*]}" >&2
+  exit 1
+}
+
+assert_no_diagnostics() {
+  [[ "${#DIAG_CODES[@]}" -eq 0 ]] && return
+  printf 'expected no diagnostics, got %s\n' "${DIAG_CODES[*]}" >&2
   exit 1
 }
 

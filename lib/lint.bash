@@ -6,20 +6,22 @@ lint_files() {
 }
 
 lint_file() {
-  local path="$1"
+  local path="${1:-}"
   reset_scan_state "$path"
   check_file_rules "$path"
   scan_file_lines "$path"
 }
 
 reset_scan_state() {
-  SCAN_PATH="$1"
+  SCAN_PATH="${1:-}"
   SCAN_LINE_NUMBER="0"
   CONTROL_FLOW_DEPTH="0"
   LOOP_DEPTH="0"
   IF_DEPTH="0"
   IN_FUNCTION="0"
   FUNCTION_START_LINE="0"
+  PREFER_FUNCTIONS_REPORTED="0"
+  FUNCTION_NAMES=()
   IF_THEN_EXIT=()
   IF_COMPARE_NAME=()
   IF_COMPARE_COUNT=()
@@ -27,14 +29,14 @@ reset_scan_state() {
 }
 
 check_file_rules() {
-  local path="$1"
+  local path="${1:-}"
   check_require_executable_shebang "$path" "1" ""
   check_require_filename_matches_dirname "$path" "1" ""
   check_no_mixed_filename_casing "$path" "1" ""
 }
 
 scan_file_lines() {
-  local path="$1"
+  local path="${1:-}"
   local line
   local -a lines
   mapfile -t lines < "$path"
@@ -45,9 +47,9 @@ scan_file_lines() {
 }
 
 scan_line() {
-  local path="$1"
-  local line_number="$2"
-  local raw_line="$3"
+  local path="${1:-}"
+  local line_number="${2:-}"
+  local raw_line="${3:-}"
   local line
   CURRENT_LINE_TEXT="$raw_line"
   line="$(normalized_code_line "$raw_line")"
@@ -56,34 +58,36 @@ scan_line() {
 }
 
 normalized_code_line() {
-  local line="$1"
+  local line="${1:-}"
   line="$(strip_comment "$line")"
   trim "$line"
 }
 
 run_line_checks() {
-  local path="$1"
-  local line_number="$2"
-  local line="$3"
+  local path="${1:-}"
+  local line_number="${2:-}"
+  local line="${3:-}"
   close_completed_blocks "$line"
   run_stateless_line_checks "$path" "$line_number" "$line"
   update_state_from_line "$path" "$line_number" "$line"
 }
 
 run_stateless_line_checks() {
-  local path="$1"
-  local line_number="$2"
-  local line="$3"
+  local path="${1:-}"
+  local line_number="${2:-}"
+  local line="${3:-}"
   check_max_expression_operators "$path" "$line_number" "$line"
   check_prefer_object_lookup "$path" "$line_number" "$line"
   check_no_direct_shell_bin_smoke "$path" "$line_number" "$line"
   check_no_bool_literal_args "$path" "$line_number" "$line"
+  check_prefer_functions "$path" "$line_number" "$line"
+  check_use_defaults_in_functions "$path" "$line_number" "$line"
 }
 
 update_state_from_line() {
-  local path="$1"
-  local line_number="$2"
-  local line="$3"
+  local path="${1:-}"
+  local line_number="${2:-}"
+  local line="${3:-}"
   update_function_state "$path" "$line_number" "$line"
   update_if_state "$path" "$line_number" "$line"
   update_loop_state "$path" "$line_number" "$line"
@@ -123,18 +127,19 @@ update_function_state() {
 }
 
 maybe_open_function() {
-  local line_number="$1"
-  local line="$2"
+  local line_number="${1:-}"
+  local line="${2:-}"
   [[ "$IN_FUNCTION" == "0" ]] || return
   is_function_open "$line" || return
   IN_FUNCTION="1"
   FUNCTION_START_LINE="$line_number"
+  remember_function_name "$line"
 }
 
 maybe_close_function() {
-  local path="$1"
-  local line_number="$2"
-  local line="$3"
+  local path="${1:-}"
+  local line_number="${2:-}"
+  local line="${3:-}"
   [[ "$IN_FUNCTION" == "1" ]] || return
   [[ "$line" == "}"* ]] || return
   check_max_function_lines "$path" "$FUNCTION_START_LINE" "$line_number"
@@ -142,8 +147,52 @@ maybe_close_function() {
 }
 
 is_function_open() {
-  local line="$1"
+  local line="${1:-}"
   [[ "$line" =~ ^(function[[:space:]]+)?[A-Za-z_][A-Za-z0-9_:-]*[[:space:]]*(\(\))?[[:space:]]*\{ ]]
+}
+
+remember_function_name() {
+  local line="${1:-}"
+  local name
+  name="$(function_name_from_open "$line")"
+  [[ -n "$name" ]] && FUNCTION_NAMES+=("$name")
+}
+
+function_name_from_open() {
+  local line="${1:-}"
+  function_keyword_name "$line" && return
+  compact_function_name "$line" && return
+  spaced_function_name "$line"
+}
+
+function_keyword_name() {
+  local line="${1:-}"
+  local keyword name
+  read -r keyword name _ <<< "$line"
+  [[ "$keyword" == "function" ]] || return 1
+  name="${name%%()*}"
+  printf '%s\n' "$name"
+}
+
+compact_function_name() {
+  local line="${1:-}"
+  local name="${line%%()*}"
+  [[ "$name" != "$line" ]] || return 1
+  shell_identifier "$name" || return 1
+  printf '%s\n' "$name"
+}
+
+spaced_function_name() {
+  local line="${1:-}"
+  local name
+  read -r name _ <<< "$line"
+  shell_identifier "$name" || return 1
+  printf '%s\n' "$name"
+}
+
+shell_identifier() {
+  local value="${1:-}"
+  [[ "$value" =~ ^[A-Za-z_][A-Za-z0-9_:-]*$ ]]
 }
 
 update_if_state() {
@@ -156,27 +205,27 @@ update_if_state() {
 }
 
 handle_else_line() {
-  local path="$1"
-  local line_number="$2"
-  local line="$3"
+  local path="${1:-}"
+  local line_number="${2:-}"
+  local line="${3:-}"
   [[ "$line" == else* ]] || return 1
   check_prefer_early_return "$path" "$line_number" "$line"
   mark_current_if_else
 }
 
 handle_elif_line() {
-  local path="$1"
-  local line_number="$2"
-  local line="$3"
+  local path="${1:-}"
+  local line_number="${2:-}"
+  local line="${3:-}"
   [[ "$line" == elif* ]] || return 1
   check_hoist_if_operators "$path" "$line_number" "$line"
   check_prefer_case_over_long_if_chain "$path" "$line_number" "$line"
 }
 
 handle_if_line() {
-  local path="$1"
-  local line_number="$2"
-  local line="$3"
+  local path="${1:-}"
+  local line_number="${2:-}"
+  local line="${3:-}"
   [[ "$line" == if[[:space:]]* ]] || return
   check_hoist_if_operators "$path" "$line_number" "$line"
   check_prefer_guard_clauses "$path" "$line_number" "$line"
@@ -184,9 +233,9 @@ handle_if_line() {
 }
 
 open_if_block() {
-  local path="$1"
-  local line_number="$2"
-  local line="$3"
+  local path="${1:-}"
+  local line_number="${2:-}"
+  local line="${3:-}"
   open_control_flow "$path" "$line_number"
   IF_DEPTH=$((IF_DEPTH + 1))
   IF_THEN_EXIT[IF_DEPTH]="0"
@@ -211,16 +260,16 @@ update_loop_state() {
 }
 
 is_loop_line() {
-  local line="$1"
+  local line="${1:-}"
   [[ "$line" == for[[:space:]]* ]] && return 0
   [[ "$line" == while[[:space:]]* ]] && return 0
   [[ "$line" == until[[:space:]]* ]]
 }
 
 check_loop_condition() {
-  local path="$1"
-  local line_number="$2"
-  local line="$3"
+  local path="${1:-}"
+  local line_number="${2:-}"
+  local line="${3:-}"
   [[ "$line" == for[[:space:]]* ]] && return
   check_hoist_if_operators "$path" "$line_number" "$line"
 }
@@ -234,8 +283,8 @@ update_case_state() {
 }
 
 open_control_flow() {
-  local path="$1"
-  local line_number="$2"
+  local path="${1:-}"
+  local line_number="${2:-}"
   CONTROL_FLOW_DEPTH=$((CONTROL_FLOW_DEPTH + 1))
   check_max_control_flow_depth "$path" "$line_number" "$CONTROL_FLOW_DEPTH"
 }
@@ -248,7 +297,7 @@ update_exit_state() {
 }
 
 command_exits() {
-  local line="$1"
+  local line="${1:-}"
   [[ "$line" =~ ^(return|exit|break|continue)([[:space:]]|$) ]]
 }
 
@@ -264,9 +313,9 @@ check_max_expression_operators() {
 }
 
 report_max_expression_operators() {
-  local path="$1"
-  local line_number="$2"
-  local count="$3"
+  local path="${1:-}"
+  local line_number="${2:-}"
+  local count="${3:-}"
   local message
   message="Expression has $count readability operators (max $MAX_EXPRESSION_OPERATORS). Extract named commands or values."
   add_diag "$path" "$line_number" "1" "LEG001" "$message"
@@ -284,9 +333,9 @@ check_hoist_if_operators() {
 }
 
 report_hoist_if_operators() {
-  local path="$1"
-  local line_number="$2"
-  local count="$3"
+  local path="${1:-}"
+  local line_number="${2:-}"
+  local count="${3:-}"
   local message
   message="Condition has $count readability operators (max $MAX_CONDITION_OPERATORS). Hoist it into a named check."
   add_diag "$path" "$line_number" "1" "LEG002" "$message"
@@ -357,10 +406,10 @@ check_no_direct_shell_bin_smoke() {
 }
 
 report_no_direct_shell_bin_smoke() {
-  local path="$1"
-  local line_number="$2"
-  local shell="$3"
-  local entry="$4"
+  local path="${1:-}"
+  local line_number="${2:-}"
+  local shell="${3:-}"
+  local entry="${4:-}"
   local message
   message="Smoke tests should execute the installed command, not \`$shell $entry\`, so packaging and shebangs are exercised."
   add_diag "$path" "$line_number" "1" "LEG017" "$message"
@@ -394,10 +443,10 @@ check_require_filename_matches_dirname() {
 }
 
 report_filename_mismatch() {
-  local path="$1"
-  local line_number="$2"
-  local file="$3"
-  local parent="$4"
+  local path="${1:-}"
+  local line_number="${2:-}"
+  local file="${3:-}"
+  local parent="${4:-}"
   local message
   message="Filename \"$file\" does not match parent directory \"$parent\"."
   add_diag "$path" "$line_number" "1" "LEG025" "$message"
@@ -443,8 +492,104 @@ check_max_function_lines() {
   add_diag "$path" "$start_line" "1" "LEG038" "$message"
 }
 
+check_prefer_functions() {
+  local path="${1:-$SCAN_PATH}"
+  local line_number="${2:-$SCAN_LINE_NUMBER}"
+  local line="${3:-$CURRENT_LINE_TEXT}"
+  [[ "$PREFER_FUNCTIONS_REPORTED" == "0" ]] || return
+  [[ "$IN_FUNCTION" == "0" ]] || return
+  (( CONTROL_FLOW_DEPTH == 0 )) || return
+  top_level_line_allowed "$line" && return
+  local message
+  message="Move top-level script logic into named functions and keep only setup plus function dispatch at the top level."
+  add_diag "$path" "$line_number" "1" "LEG039" "$message"
+  PREFER_FUNCTIONS_REPORTED="1"
+}
+
+check_use_defaults_in_functions() {
+  local path="${1:-$SCAN_PATH}"
+  local line_number="${2:-$SCAN_LINE_NUMBER}"
+  local line="${3:-$CURRENT_LINE_TEXT}"
+  [[ "$IN_FUNCTION" == "1" ]] || return
+  has_unguarded_arg_assignment "$line" || return
+  local message
+  message="Use a default or required-argument expansion when binding positional parameters inside functions."
+  add_diag "$path" "$line_number" "1" "LEG040" "$message"
+}
+
+top_level_line_allowed() {
+  local line="${1:-}"
+  [[ -z "$line" ]] && return 0
+  is_function_open "$line" && return 0
+  top_level_declaration_line "$line" && return 0
+  top_level_block_close "$line" && return 0
+  top_level_function_dispatch "$line"
+}
+
+top_level_declaration_line() {
+  local line="${1:-}"
+  local word
+  simple_assignment_line "$line" && return 0
+  word="$(first_word "$line")"
+  case "$word" in
+    set) return 0 ;;
+    shopt) return 0 ;;
+    trap) return 0 ;;
+    source) return 0 ;;
+    .) return 0 ;;
+    export) return 0 ;;
+    readonly) return 0 ;;
+    declare) return 0 ;;
+    typeset) return 0 ;;
+  esac
+  return 1
+}
+
+simple_assignment_line() {
+  local line="${1:-}"
+  local name="${line%%=*}"
+  [[ "$name" != "$line" ]] || return 1
+  name="${name%+}"
+  name="${name%%[*}"
+  shell_identifier "$name"
+}
+
+top_level_block_close() {
+  case "${1:-}" in
+    "}"*) return 0 ;;
+    fi*) return 0 ;;
+    done*) return 0 ;;
+    "esac"*) return 0 ;;
+  esac
+  return 1
+}
+
+top_level_function_dispatch() {
+  local line="${1:-}"
+  local command
+  command="$(first_word "$line")"
+  function_name_seen "$command"
+}
+
+function_name_seen() {
+  local name="${1:-}"
+  local function_name
+  [[ "$name" == "main" ]] && return 0
+  for function_name in "${FUNCTION_NAMES[@]}"; do
+    [[ "$function_name" == "$name" ]] && return 0
+  done
+  return 1
+}
+
+has_unguarded_arg_assignment() {
+  local line="${1:-}"
+  [[ "$line" == local[[:space:]]* ]] || return 1
+  [[ "$line" =~ (^|[^\\])\$[1-9][0-9]* ]] && return 0
+  [[ "$line" =~ \$\{[1-9][0-9]*\} ]]
+}
+
 condition_text() {
-  local line="$1"
+  local line="${1:-}"
   line="${line#if }"
   line="${line#elif }"
   line="${line#while }"
@@ -455,7 +600,7 @@ condition_text() {
 }
 
 count_condition_operators() {
-  local text="$1"
+  local text="${1:-}"
   local count="0"
   count=$((count + $(count_occurrences "$text" "&&")))
   count=$((count + $(count_occurrences "$text" "||")))
@@ -466,7 +611,7 @@ count_condition_operators() {
 }
 
 count_expression_operators() {
-  local line="$1"
+  local line="${1:-}"
   local pipe_line count
   pipe_line="${line//||/}"
   pipe_line="${pipe_line//|&/}"
@@ -478,14 +623,14 @@ count_expression_operators() {
 }
 
 line_starts_control() {
-  local line="$1"
+  local line="${1:-}"
   local word
   word="$(first_word "$line")"
   control_word "$word"
 }
 
 control_word() {
-  case "$1" in
+  case "${1:-}" in
     if) return 0 ;;
     elif) return 0 ;;
     while) return 0 ;;
@@ -501,14 +646,14 @@ control_word() {
 }
 
 comparison_left_name() {
-  local line="$1"
+  local line="${1:-}"
   local condition
   condition="$(condition_text "$line")"
   comparison_left_name_from_condition "$condition"
 }
 
 comparison_left_name_from_condition() {
-  local condition="$1"
+  local condition="${1:-}"
   local opener left operator
   read -r opener left operator _ <<< "$condition"
   comparison_opener_supported "$opener" || return
@@ -517,7 +662,7 @@ comparison_left_name_from_condition() {
 }
 
 comparison_opener_supported() {
-  case "$1" in
+  case "${1:-}" in
     "[[") return 0 ;;
     "[") return 0 ;;
     "test") return 0 ;;
@@ -526,7 +671,7 @@ comparison_opener_supported() {
 }
 
 comparison_operator_supported() {
-  case "$1" in
+  case "${1:-}" in
     "==") return 0 ;;
     "=") return 0 ;;
     "-eq") return 0 ;;
@@ -548,9 +693,9 @@ track_if_chain_comparison() {
 }
 
 update_if_chain_count() {
-  local path="$1"
-  local line_number="$2"
-  local line="$3"
+  local path="${1:-}"
+  local line_number="${2:-}"
+  local line="${3:-}"
   local next_name current_name
   next_name="$(comparison_left_name "$line")"
   current_name="${IF_COMPARE_NAME[$IF_DEPTH]}"
@@ -561,8 +706,8 @@ update_if_chain_count() {
 }
 
 maybe_report_if_chain() {
-  local path="$1"
-  local line_number="$2"
+  local path="${1:-}"
+  local line_number="${2:-}"
   local count
   count="${IF_COMPARE_COUNT[$IF_DEPTH]}"
   (( count < MIN_CASE_CHAIN_LENGTH )) && return
@@ -571,9 +716,9 @@ maybe_report_if_chain() {
 }
 
 report_if_chain() {
-  local path="$1"
-  local line_number="$2"
-  local count="$3"
+  local path="${1:-}"
+  local line_number="${2:-}"
+  local count="${3:-}"
   local name message
   name="${IF_COMPARE_NAME[$IF_DEPTH]}"
   message="If chain compares $name $count times. Prefer a case statement."
@@ -582,7 +727,7 @@ report_if_chain() {
 }
 
 direct_entry_from_line() {
-  local line="$1"
+  local line="${1:-}"
   local word
   for word in $line; do
     direct_entry_word "$word" && return
@@ -590,14 +735,14 @@ direct_entry_from_line() {
 }
 
 direct_entry_word() {
-  local word="$1"
+  local word="${1:-}"
   [[ "$word" == -* ]] && return 1
   path_matches_any "$word" DIRECT_SHELL_ENTRY_PATTERNS || return 1
   printf '%s\n' "$word"
 }
 
 file_has_allowed_shebang() {
-  local path="$1"
+  local path="${1:-}"
   local first_line
   first_line="$(sed -n '1p' "$path" 2>/dev/null)"
   [[ "$first_line" == "#!"* ]] || return 1
@@ -605,21 +750,21 @@ file_has_allowed_shebang() {
 }
 
 path_parent_depth() {
-  local path="$1"
+  local path="${1:-}"
   local normalized
   normalized="${path#./}"
   awk -F/ '{print NF-1}' <<< "$normalized"
 }
 
 filename_without_extension() {
-  local path="$1"
+  local path="${1:-}"
   local file
   file="$(basename "$path")"
   printf '%s\n' "${file%.*}"
 }
 
 filename_base() {
-  local path="$1"
+  local path="${1:-}"
   local name
   name="$(basename "$path")"
   name="${name#\.}"
@@ -627,21 +772,21 @@ filename_base() {
 }
 
 filename_base_allowed() {
-  local base="$1"
-  local parent="$2"
+  local base="${1:-}"
+  local parent="${2:-}"
   [[ "$base" == "$parent" ]] && return 0
   filename_base_standalone "$base"
 }
 
 filename_base_standalone() {
-  case "$1" in
+  case "${1:-}" in
     index|constants|helpers|utils) return 0 ;;
   esac
   return 1
 }
 
 filename_casing_mixed() {
-  local name="$1"
+  local name="${1:-}"
   local has_hyphen has_underscore has_upper has_lower
   [[ "$name" == *-* ]] && has_hyphen="1" || has_hyphen="0"
   [[ "$name" == *_* ]] && has_underscore="1" || has_underscore="0"
@@ -651,62 +796,62 @@ filename_casing_mixed() {
 }
 
 filename_casing_flags_mixed() {
-  local has_hyphen="$1"
-  local has_underscore="$2"
-  local has_upper="$3"
-  local has_lower="$4"
+  local has_hyphen="${1:-}"
+  local has_underscore="${2:-}"
+  local has_upper="${3:-}"
+  local has_lower="${4:-}"
   casing_mixes_separators "$has_hyphen" "$has_underscore" && return 0
   casing_mixes_separator_with_case "$has_hyphen" "$has_underscore" "$has_upper" "$has_lower"
 }
 
 casing_mixes_separators() {
-  local has_hyphen="$1"
-  local has_underscore="$2"
+  local has_hyphen="${1:-}"
+  local has_underscore="${2:-}"
   [[ "$has_hyphen" == "1" ]] || return 1
   [[ "$has_underscore" == "1" ]]
 }
 
 casing_mixes_separator_with_case() {
-  local has_hyphen="$1"
-  local has_underscore="$2"
-  local has_upper="$3"
-  local has_lower="$4"
+  local has_hyphen="${1:-}"
+  local has_underscore="${2:-}"
+  local has_upper="${3:-}"
+  local has_lower="${4:-}"
   [[ "$has_upper" == "1" ]] || return 1
   [[ "$has_lower" == "1" ]] || return 1
   [[ "$has_hyphen$has_underscore" != "00" ]]
 }
 
 has_bool_literal_arg() {
-  local line="$1"
+  local line="${1:-}"
   line_contains_word "$line" "true" && return 0
   line_contains_word "$line" "false"
 }
 
 line_contains_word() {
-  local line="$1"
-  local word="$2"
+  local line="${1:-}"
+  local word="${2:-}"
   local padded
   padded=" $line "
   [[ "$padded" == *" $word "* ]]
 }
 
 add_diag() {
-  local path="$1"
-  local line="$2"
-  local column="$3"
-  local code="$4"
-  local message="$5"
+  local path="${1:-}"
+  local line="${2:-}"
+  local column="${3:-}"
+  local code="${4:-}"
+  local message="${5:-}"
   rule_enabled "$code" || return
   line_ignores_code "$CURRENT_LINE_TEXT" "$code" && return
   append_diag "$path" "$line" "$column" "$code" "$message"
 }
 
 append_diag() {
-  local path="$1"
-  local line="$2"
-  local column="$3"
-  local code="$4"
-  local message="$5"
+  local path="${1:-}"
+  local line="${2:-}"
+  local column="${3:-}"
+  local code="${4:-}"
+  local message="${5:-}"
   DIAG_PATHS+=("$path")
   DIAG_LINES+=("$line")
   DIAG_COLUMNS+=("$column")

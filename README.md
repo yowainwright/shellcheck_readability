@@ -2,7 +2,7 @@
 
 Shell readability checks that sit beside ShellCheck.
 
-ShellCheck should own correctness, portability, quoting, and shell semantics. This project focuses on reviewability: control-flow depth, operator-heavy expressions, long functions, repeated comparisons, direct shell smoke tests, and patterns that make scripts harder to scan.
+ShellCheck should own correctness, portability, quoting, and shell semantics. This project focuses on reviewability: control-flow depth, operator-heavy expressions, long functions, function-first script shape, defaulted function args, repeated comparisons, direct shell smoke tests, and patterns that make scripts harder to scan.
 
 Requires Bash 4.3 or newer. ShellCheck is a development lint dependency, not a runtime dependency.
 
@@ -37,24 +37,28 @@ min-dirname-match-depth = 3
 
 Selectors use the same model as the other legibility tools: `select`, `ignore`, rule codes, rule names, and `LEG`.
 
-## Rules
+## Implemented Rules
+
+Only implemented rules are listed here. Each rule links to its do / don't diff example.
 
 | Code | Rule | Summary |
 | --- | --- | --- |
-| `LEG001` | [max-expression-operators](#max-expression-operators-diff) | Limit `&&`, `||`, and pipeline-heavy shell expressions. |
-| `LEG002` | [hoist-if-operators](#hoist-if-operators-diff) | Prefer named checks before operator-heavy conditions. |
-| `LEG003` | [max-control-flow-depth](#max-control-flow-depth-diff) | Limit nested control flow. |
-| `LEG005` | [no-quadratic-patterns](#no-quadratic-patterns-diff) | Flag nested loops. |
-| `LEG009` | [prefer-early-return](#prefer-early-return-diff) | Avoid `else` after a branch exits. |
-| `LEG010` | [prefer-guard-clauses](#prefer-guard-clauses-diff) | Prefer guard clauses inside functions. |
-| `LEG016` | [require-executable-shebang](#require-executable-shebang-diff) | Require executable shell entries to have a shebang. |
-| `LEG017` | [no-direct-shell-bin-smoke](#no-direct-shell-bin-smoke-diff) | Prefer installed-command smoke tests over direct shell entry files. |
-| `LEG024` | [prefer-object-lookup](#prefer-object-lookup-diff) | Prefer `case` or lookup-style flow over repeated equality checks. |
-| `LEG025` | [require-filename-matches-dirname](#require-filename-matches-dirname-diff) | Require files in named subdirectories to match the directory name. |
-| `LEG026` | [no-mixed-filename-casing](#no-mixed-filename-casing-diff) | Avoid filenames that mix casing conventions. |
-| `LEG034` | [prefer-case-over-long-if-chain](#prefer-case-over-long-if-chain-diff) | Prefer `case` over long `elif` chains comparing the same value. |
-| `LEG035` | [no-bool-literal-args](#no-bool-literal-args-diff) | Avoid boolean literal arguments. |
-| `LEG038` | [max-function-lines](#max-function-lines-diff) | Keep shell functions within a focused line budget. |
+| [`LEG001`](#max-expression-operators-diff) | `max-expression-operators` | Limit `&&`, `||`, and pipeline-heavy shell expressions. |
+| [`LEG002`](#hoist-if-operators-diff) | `hoist-if-operators` | Prefer named checks before operator-heavy conditions. |
+| [`LEG003`](#max-control-flow-depth-diff) | `max-control-flow-depth` | Limit nested control flow. |
+| [`LEG005`](#no-quadratic-patterns-diff) | `no-quadratic-patterns` | Flag nested loops. |
+| [`LEG009`](#prefer-early-return-diff) | `prefer-early-return` | Avoid `else` after a branch exits. |
+| [`LEG010`](#prefer-guard-clauses-diff) | `prefer-guard-clauses` | Prefer guard clauses inside functions. |
+| [`LEG016`](#require-executable-shebang-diff) | `require-executable-shebang` | Require executable shell entries to have a shebang. |
+| [`LEG017`](#no-direct-shell-bin-smoke-diff) | `no-direct-shell-bin-smoke` | Prefer installed-command smoke tests over direct shell entry files. |
+| [`LEG024`](#prefer-object-lookup-diff) | `prefer-object-lookup` | Prefer `case` or lookup-style flow over repeated equality checks. |
+| [`LEG025`](#require-filename-matches-dirname-diff) | `require-filename-matches-dirname` | Require files in named subdirectories to match the directory name. |
+| [`LEG026`](#no-mixed-filename-casing-diff) | `no-mixed-filename-casing` | Avoid filenames that mix casing conventions. |
+| [`LEG034`](#prefer-case-over-long-if-chain-diff) | `prefer-case-over-long-if-chain` | Prefer `case` over long `elif` chains comparing the same value. |
+| [`LEG035`](#no-bool-literal-args-diff) | `no-bool-literal-args` | Avoid boolean literal arguments. |
+| [`LEG038`](#max-function-lines-diff) | `max-function-lines` | Keep shell functions within a focused line budget. |
+| [`LEG039`](#prefer-functions-diff) | `prefer-functions` | Prefer named functions over top-level script logic. |
+| [`LEG040`](#use-defaults-in-functions-diff) | `use-defaults-in-functions` | Use defaulted or guarded positional args in functions. |
 
 ---
 
@@ -419,6 +423,57 @@ Keep shell functions within a focused line budget.
   }
 ```
 
+---
+
+<a id="prefer-functions"></a>
+
+### `prefer-functions`
+
+Prefer named functions for script logic and keep top-level code limited to setup and dispatch.
+
+#### options
+
+None.
+
+<a id="prefer-functions-diff"></a>
+
+#### do / don't
+
+```diff
+- docker build --tag "$IMAGE_NAME" .
+- docker run --rm "$IMAGE_NAME"
++ main() {
++   docker build --tag "$IMAGE_NAME" .
++   docker run --rm "$IMAGE_NAME"
++ }
++
++ main "$@"
+```
+
+---
+
+<a id="use-defaults-in-functions"></a>
+
+### `use-defaults-in-functions`
+
+Use default or required-argument expansions when binding function positional parameters.
+
+#### options
+
+None.
+
+<a id="use-defaults-in-functions-diff"></a>
+
+#### do / don't
+
+```diff
+  deploy() {
+-   local target="$1"
++   local target="${1:-staging}"
+    upload "$target"
+  }
+```
+
 ## Rule Function Testing
 
 Rule functions are named after the lint checks and accept optional values, so tests can call them directly:
@@ -427,6 +482,8 @@ Rule functions are named after the lint checks and accept optional values, so te
 check_hoist_if_operators "example.sh" "4" 'if [[ -n "$user" && -n "$email" ]]; then'
 check_max_expression_operators "example.sh" "7" 'build && test && package'
 check_no_bool_literal_args "example.sh" "9" 'create_user "$name" true false'
+check_prefer_functions "example.sh" "5" "docker build ."
+check_use_defaults_in_functions "example.sh" "6" 'local target="$1"'
 ```
 
 ## Tests
