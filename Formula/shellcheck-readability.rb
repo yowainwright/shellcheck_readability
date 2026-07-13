@@ -4,7 +4,6 @@ class ShellcheckReadability < Formula
   license "MIT"
   head "https://github.com/yowainwright/shellcheck_readability.git", branch: "main"
 
-  depends_on "shellcheck" => :test
   depends_on "bash"
 
   def install
