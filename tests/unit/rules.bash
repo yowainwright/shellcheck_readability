@@ -31,6 +31,9 @@ main() {
   test_prefer_functions_allows_dispatch
   test_use_defaults_in_functions
   test_use_defaults_in_functions_allows_defaults
+  test_use_defaults_in_functions_reports_separate_assignment
+  test_use_defaults_in_functions_reports_transformed_arg
+  test_use_defaults_in_functions_reports_single_line_function
   printf '%s\n' "ok"
 }
 
@@ -109,6 +112,26 @@ test_use_defaults_in_functions_allows_defaults() {
   IN_FUNCTION="1"
   check_use_defaults_in_functions "example.sh" "6" 'local target="${1:-dev}"'
   assert_no_diagnostics
+}
+
+test_use_defaults_in_functions_reports_separate_assignment() {
+  reset_test_state
+  IN_FUNCTION="1"
+  check_use_defaults_in_functions "example.sh" "7" 'target="$1"'
+  assert_has_code "LEG040"
+}
+
+test_use_defaults_in_functions_reports_transformed_arg() {
+  reset_test_state
+  IN_FUNCTION="1"
+  check_use_defaults_in_functions "example.sh" "8" 'local base="${1%.ext}"'
+  assert_has_code "LEG040"
+}
+
+test_use_defaults_in_functions_reports_single_line_function() {
+  reset_test_state
+  check_use_defaults_in_functions "example.sh" "3" 'deploy() { local target="$1"; upload "$target"; }'
+  assert_has_code "LEG040"
 }
 
 assert_has_code() {

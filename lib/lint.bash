@@ -510,11 +510,27 @@ check_use_defaults_in_functions() {
   local path="${1:-$SCAN_PATH}"
   local line_number="${2:-$SCAN_LINE_NUMBER}"
   local line="${3:-$CURRENT_LINE_TEXT}"
-  [[ "$IN_FUNCTION" == "1" ]] || return
-  has_unguarded_arg_assignment "$line" || return
+  local scoped_line
+  scoped_line="$(function_scoped_line "$line")" || return
+  has_unguarded_arg_assignment "$scoped_line" || return
   local message
   message="Use a default or required-argument expansion when binding positional parameters inside functions."
   add_diag "$path" "$line_number" "1" "LEG040" "$message"
+}
+
+function_scoped_line() {
+  local line="${1:-}"
+  [[ "$IN_FUNCTION" == "1" ]] && printf '%s\n' "$line" && return
+  single_line_function_body "$line"
+}
+
+single_line_function_body() {
+  local line="${1:-}"
+  is_function_open "$line" || return 1
+  [[ "$line" == *"{"*"}"* ]] || return 1
+  line="${line#*\{}"
+  line="${line%\}*}"
+  printf '%s\n' "$line"
 }
 
 top_level_line_allowed() {
@@ -583,9 +599,67 @@ function_name_seen() {
 
 has_unguarded_arg_assignment() {
   local line="${1:-}"
-  [[ "$line" == local[[:space:]]* ]] || return 1
-  [[ "$line" =~ (^|[^\\])\$[1-9][0-9]* ]] && return 0
-  [[ "$line" =~ \$\{[1-9][0-9]*\} ]]
+  local segment
+  local -a segments
+  IFS=';' read -r -a segments <<< "$line"
+  for segment in "${segments[@]}"; do
+    segment="$(trim "$segment")"
+    assignment_segment_uses_unguarded_arg "$segment" && return 0
+  done
+  return 1
+}
+
+assignment_segment_uses_unguarded_arg() {
+  local segment="${1:-}"
+  binding_assignment_segment "$segment" || return 1
+  has_unguarded_positional_expansion "$segment"
+}
+
+binding_assignment_segment() {
+  local segment="${1:-}"
+  declaration_assignment_segment "$segment" && return 0
+  simple_assignment_line "$segment"
+}
+
+declaration_assignment_segment() {
+  local segment="${1:-}"
+  local command
+  command="$(first_word "$segment")"
+  [[ "$segment" == *=* ]] || return 1
+  [[ "$command" == "local" ]]
+}
+
+has_unguarded_positional_expansion() {
+  local text="${1:-}"
+  bare_positional_expansion "$text" && return 0
+  braced_positional_expansion_unguarded "$text"
+}
+
+bare_positional_expansion() {
+  local text="${1:-}"
+  [[ "$text" =~ (^|[^\\])\$[1-9][0-9]* ]]
+}
+
+braced_positional_expansion_unguarded() {
+  local text="${1:-}"
+  local match suffix
+  while [[ "$text" =~ \$\{([1-9][0-9]*)([^}]*)\} ]]; do
+    match="${BASH_REMATCH[0]}"
+    suffix="${BASH_REMATCH[2]}"
+    positional_suffix_guarded "$suffix" || return 0
+    text="${text#*"$match"}"
+  done
+  return 1
+}
+
+positional_suffix_guarded() {
+  case "${1:-}" in
+    :-*) return 0 ;;
+    -*) return 0 ;;
+    :\?*) return 0 ;;
+    \?*) return 0 ;;
+  esac
+  return 1
 }
 
 condition_text() {
