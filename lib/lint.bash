@@ -20,6 +20,8 @@ reset_scan_state() {
   IF_DEPTH="0"
   IN_FUNCTION="0"
   FUNCTION_START_LINE="0"
+  PENDING_FUNCTION_DECLARATION="0"
+  PENDING_FUNCTION_START_LINE="0"
   PREFER_FUNCTIONS_REPORTED="0"
   FUNCTION_NAMES=()
   IF_THEN_EXIT=()
@@ -131,11 +133,46 @@ maybe_open_function() {
   local line_number="${2:-}"
   local line="${3:-}"
   [[ "$IN_FUNCTION" == "0" ]] || return
+  maybe_open_pending_function "$path" "$line_number" "$line" && return
+  is_function_open "$line" || maybe_remember_pending_function "$line_number" "$line"
   is_function_open "$line" || return
   remember_function_name "$line"
   handle_inline_function "$path" "$line_number" "$line" && return
   IN_FUNCTION="1"
   FUNCTION_START_LINE="$line_number"
+}
+
+maybe_open_pending_function() {
+  local path="${1:-}"
+  local line_number="${2:-}"
+  local line="${3:-}"
+  [[ "$PENDING_FUNCTION_DECLARATION" == "1" ]] || return 1
+  ensure_pending_function_brace_line "$line" || return 1
+  handle_pending_inline_function "$path" "$line_number" "$line" && return
+  IN_FUNCTION="1"
+  FUNCTION_START_LINE="$PENDING_FUNCTION_START_LINE"
+  clear_pending_function
+}
+
+ensure_pending_function_brace_line() {
+  local line="${1:-}"
+  pending_function_brace_line "$line" && return 0
+  clear_pending_function
+  return 1
+}
+
+handle_pending_inline_function() {
+  local path="${1:-}"
+  local line_number="${2:-}"
+  local line="${3:-}"
+  inline_brace_line "$line" || return 1
+  check_max_function_lines "$path" "$PENDING_FUNCTION_START_LINE" "$line_number"
+  clear_pending_function
+}
+
+clear_pending_function() {
+  PENDING_FUNCTION_DECLARATION="0"
+  PENDING_FUNCTION_START_LINE="0"
 }
 
 maybe_close_function() {
@@ -151,6 +188,43 @@ maybe_close_function() {
 is_function_open() {
   local line="${1:-}"
   [[ "$line" =~ ^(function[[:space:]]+)?[A-Za-z_][A-Za-z0-9_:-]*[[:space:]]*(\(\))?[[:space:]]*\{ ]]
+}
+
+maybe_remember_pending_function() {
+  local line_number="${1:-}"
+  local line="${2:-}"
+  local name
+  name="$(function_declaration_name "$line")"
+  [[ -z "$name" ]] && return
+  FUNCTION_NAMES+=("$name")
+  PENDING_FUNCTION_DECLARATION="1"
+  PENDING_FUNCTION_START_LINE="$line_number"
+}
+
+function_declaration_name() {
+  local line="${1:-}"
+  function_keyword_declaration_name "$line" && return
+  compact_function_declaration_name "$line"
+}
+
+function_keyword_declaration_name() {
+  local line="${1:-}"
+  local keyword name extra
+  read -r keyword name extra <<< "$line"
+  [[ "$keyword" == "function" ]] || return 1
+  [[ -z "$extra" ]] || return 1
+  name="${name%%()*}"
+  shell_identifier "$name" || return 1
+  printf '%s\n' "$name"
+}
+
+compact_function_declaration_name() {
+  local line="${1:-}"
+  local name="${line%%()*}"
+  [[ "$name" != "$line" ]] || return 1
+  [[ "$line" == "$name()" ]] || return 1
+  shell_identifier "$name" || return 1
+  printf '%s\n' "$name"
 }
 
 remember_function_name() {
@@ -523,12 +597,19 @@ check_use_defaults_in_functions() {
 function_scoped_line() {
   local line="${1:-}"
   [[ "$IN_FUNCTION" == "1" ]] && printf '%s\n' "$line" && return
+  [[ "$PENDING_FUNCTION_DECLARATION" == "1" ]] && brace_opening_body "$line" && return
   function_opening_body "$line"
 }
 
 function_opening_body() {
   local line="${1:-}"
   is_function_open "$line" || return 1
+  brace_opening_body "$line"
+}
+
+brace_opening_body() {
+  local line="${1:-}"
+  [[ "$line" == *"{"* ]] || return 1
   line="${line#*\{}"
   [[ "$line" == *"}"* ]] && line="${line%\}*}"
   printf '%s\n' "$line"
@@ -548,13 +629,26 @@ inline_function_line() {
   [[ "$line" == *"{"*"}"* ]]
 }
 
+inline_brace_line() {
+  local line="${1:-}"
+  [[ "$line" == "{"*"}"* ]]
+}
+
 top_level_line_allowed() {
   local line="${1:-}"
   [[ -z "$line" ]] && return 0
+  pending_function_brace_line "$line" && return 0
   is_function_open "$line" && return 0
+  function_declaration_name "$line" >/dev/null && return 0
   top_level_declaration_line "$line" && return 0
   top_level_block_close "$line" && return 0
   top_level_function_dispatch "$line"
+}
+
+pending_function_brace_line() {
+  local line="${1:-}"
+  [[ "$PENDING_FUNCTION_DECLARATION" == "1" ]] || return 1
+  [[ "$line" == "{"* ]]
 }
 
 top_level_declaration_line() {

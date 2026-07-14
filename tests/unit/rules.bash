@@ -35,6 +35,7 @@ main() {
   test_use_defaults_in_functions_reports_transformed_arg
   test_use_defaults_in_functions_reports_single_line_function
   test_use_defaults_in_functions_reports_opening_line_binding
+  test_split_function_declaration_reports_arg_binding
   test_inline_function_does_not_leak_function_state
   printf '%s\n' "ok"
 }
@@ -139,6 +140,16 @@ test_use_defaults_in_functions_reports_single_line_function() {
 test_use_defaults_in_functions_reports_opening_line_binding() {
   reset_test_state
   check_use_defaults_in_functions "example.sh" "3" 'deploy() { local target="$1"'
+  assert_has_code "LEG040"
+}
+
+test_split_function_declaration_reports_arg_binding() {
+  reset_test_state
+  scan_line "example.sh" "1" "deploy()"
+  assert_no_diagnostics
+  scan_line "example.sh" "2" "{"
+  assert_no_diagnostics
+  scan_line "example.sh" "3" 'local target="$1"'
   assert_has_code "LEG040"
 }
 
