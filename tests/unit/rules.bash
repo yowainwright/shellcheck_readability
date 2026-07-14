@@ -34,6 +34,7 @@ main() {
   test_use_defaults_in_functions_reports_separate_assignment
   test_use_defaults_in_functions_reports_transformed_arg
   test_use_defaults_in_functions_reports_single_line_function
+  test_inline_function_does_not_leak_function_state
   printf '%s\n' "ok"
 }
 
@@ -134,6 +135,12 @@ test_use_defaults_in_functions_reports_single_line_function() {
   assert_has_code "LEG040"
 }
 
+test_inline_function_does_not_leak_function_state() {
+  reset_test_state
+  update_function_state "example.sh" "3" 'deploy() { local target="${1:-staging}"; }'
+  [[ "$IN_FUNCTION" == "0" ]] || fail "expected inline function to stay closed"
+}
+
 assert_has_code() {
   local expected="${1:-}"
   local code
@@ -147,6 +154,11 @@ assert_has_code() {
 assert_no_diagnostics() {
   [[ "${#DIAG_CODES[@]}" -eq 0 ]] && return
   printf 'expected no diagnostics, got %s\n' "${DIAG_CODES[*]}" >&2
+  exit 1
+}
+
+fail() {
+  printf '%s\n' "${1:-}" >&2
   exit 1
 }
 

@@ -122,18 +122,20 @@ update_function_state() {
   local path="${1:-$SCAN_PATH}"
   local line_number="${2:-$SCAN_LINE_NUMBER}"
   local line="${3:-}"
-  maybe_open_function "$line_number" "$line"
+  maybe_open_function "$path" "$line_number" "$line"
   maybe_close_function "$path" "$line_number" "$line"
 }
 
 maybe_open_function() {
-  local line_number="${1:-}"
-  local line="${2:-}"
+  local path="${1:-}"
+  local line_number="${2:-}"
+  local line="${3:-}"
   [[ "$IN_FUNCTION" == "0" ]] || return
   is_function_open "$line" || return
+  remember_function_name "$line"
+  handle_inline_function "$path" "$line_number" "$line" && return
   IN_FUNCTION="1"
   FUNCTION_START_LINE="$line_number"
-  remember_function_name "$line"
 }
 
 maybe_close_function() {
@@ -526,11 +528,24 @@ function_scoped_line() {
 
 single_line_function_body() {
   local line="${1:-}"
-  is_function_open "$line" || return 1
-  [[ "$line" == *"{"*"}"* ]] || return 1
+  inline_function_line "$line" || return 1
   line="${line#*\{}"
   line="${line%\}*}"
   printf '%s\n' "$line"
+}
+
+handle_inline_function() {
+  local path="${1:-}"
+  local line_number="${2:-}"
+  local line="${3:-}"
+  inline_function_line "$line" || return 1
+  check_max_function_lines "$path" "$line_number" "$line_number"
+}
+
+inline_function_line() {
+  local line="${1:-}"
+  is_function_open "$line" || return 1
+  [[ "$line" == *"{"*"}"* ]]
 }
 
 top_level_line_allowed() {
