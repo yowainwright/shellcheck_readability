@@ -523,14 +523,14 @@ check_use_defaults_in_functions() {
 function_scoped_line() {
   local line="${1:-}"
   [[ "$IN_FUNCTION" == "1" ]] && printf '%s\n' "$line" && return
-  single_line_function_body "$line"
+  function_opening_body "$line"
 }
 
-single_line_function_body() {
+function_opening_body() {
   local line="${1:-}"
-  inline_function_line "$line" || return 1
+  is_function_open "$line" || return 1
   line="${line#*\{}"
-  line="${line%\}*}"
+  [[ "$line" == *"}"* ]] && line="${line%\}*}"
   printf '%s\n' "$line"
 }
 
