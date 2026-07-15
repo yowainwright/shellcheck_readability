@@ -45,6 +45,11 @@ test_function_rules() {
   test_use_defaults_in_functions_reports_transformed_arg
   test_use_defaults_in_functions_reports_single_line_function
   test_use_defaults_in_functions_reports_opening_line_binding
+  test_use_defaults_in_functions_reports_declare_binding
+  test_use_defaults_in_functions_reports_typeset_binding
+  test_use_defaults_in_functions_allows_global_declare
+  test_use_defaults_in_functions_allows_assign_default
+  test_use_defaults_in_functions_reports_command_list_assignment
   test_split_function_declaration_reports_arg_binding
   test_inline_function_does_not_leak_function_state
 }
@@ -163,6 +168,42 @@ test_use_defaults_in_functions_reports_single_line_function() {
 test_use_defaults_in_functions_reports_opening_line_binding() {
   reset_test_state
   check_use_defaults_in_functions "example.sh" "3" 'deploy() { local target="$1"'
+  assert_has_code "LEG040"
+}
+
+test_use_defaults_in_functions_reports_declare_binding() {
+  reset_test_state
+  IN_FUNCTION="1"
+  check_use_defaults_in_functions "example.sh" "7" 'declare target="$1"'
+  assert_has_code "LEG040"
+}
+
+test_use_defaults_in_functions_reports_typeset_binding() {
+  reset_test_state
+  IN_FUNCTION="1"
+  check_use_defaults_in_functions "example.sh" "7" 'typeset target="$1"'
+  assert_has_code "LEG040"
+}
+
+test_use_defaults_in_functions_allows_global_declare() {
+  reset_test_state
+  IN_FUNCTION="1"
+  check_use_defaults_in_functions "example.sh" "7" 'declare -g target="$1"'
+  assert_no_diagnostics
+}
+
+test_use_defaults_in_functions_allows_assign_default() {
+  reset_test_state
+  IN_FUNCTION="1"
+  check_use_defaults_in_functions "example.sh" "7" 'local target="${1:=staging}"'
+  check_use_defaults_in_functions "example.sh" "8" 'local mode="${1=dev}"'
+  assert_no_diagnostics
+}
+
+test_use_defaults_in_functions_reports_command_list_assignment() {
+  reset_test_state
+  IN_FUNCTION="1"
+  check_use_defaults_in_functions "example.sh" "7" 'prepare && target="$1"' # noqa: LEG040
   assert_has_code "LEG040"
 }
 

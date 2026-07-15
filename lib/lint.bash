@@ -733,12 +733,21 @@ has_unguarded_arg_assignment() {
   local line="${1:-}"
   local segment
   local -a segments
+  line="$(command_list_segments "$line")"
   IFS=';' read -r -a segments <<< "$line"
   for segment in "${segments[@]}"; do
     segment="$(trim "$segment")"
     assignment_segment_uses_unguarded_arg "$segment" && return 0
   done
   return 1
+}
+
+command_list_segments() {
+  local line="${1:-}"
+  line="${line//&&/;}"
+  line="${line//||/;}"
+  line="${line//|/;}"
+  printf '%s\n' "$line"
 }
 
 assignment_segment_uses_unguarded_arg() {
@@ -758,7 +767,26 @@ declaration_assignment_segment() {
   local command
   command="$(first_word "$segment")"
   [[ "$segment" == *=* ]] || return 1
-  [[ "$command" == "local" ]]
+  declaration_command_supported "$command" || return 1
+  declaration_has_global_option "$segment" && return 1
+  return 0
+}
+
+declaration_command_supported() {
+  case "${1:-}" in
+    local|declare|typeset) return 0 ;;
+  esac
+  return 1
+}
+
+declaration_has_global_option() {
+  local segment="${1:-}"
+  local word
+  for word in $segment; do
+    [[ "$word" == *"="* ]] && return 1
+    [[ "$word" == -*g* ]] && return 0
+  done
+  return 1
 }
 
 has_unguarded_positional_expansion() {
@@ -788,6 +816,8 @@ positional_suffix_guarded() {
   case "${1:-}" in
     :-*) return 0 ;;
     -*) return 0 ;;
+    :=*) return 0 ;;
+    =*) return 0 ;;
     :\?*) return 0 ;;
     \?*) return 0 ;;
   esac
