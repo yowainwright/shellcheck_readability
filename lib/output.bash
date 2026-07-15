@@ -12,7 +12,7 @@ write_text_diagnostics() {
 }
 
 write_text_diagnostic() {
-  local index="$1"
+  local index="${1:-}"
   printf '%s:%s:%s: %s %s\n' \
     "${DIAG_PATHS[$index]}" \
     "${DIAG_LINES[$index]}" \
@@ -33,15 +33,15 @@ write_json_diagnostics() {
 }
 
 write_json_diagnostic() {
-  local index="$1"
-  local separator="$2"
+  local index="${1:-}"
+  local separator="${2:-}"
   printf '%s  {' "$separator"
   write_json_fields "$index"
   printf '}'
 }
 
 write_json_fields() {
-  local index="$1"
+  local index="${1:-}"
   printf '"path":"%s",' "$(json_escape "${DIAG_PATHS[$index]}")"
   printf '"line":%s,' "${DIAG_LINES[$index]}"
   printf '"column":%s,' "${DIAG_COLUMNS[$index]}"

@@ -1,5 +1,5 @@
 rule_name() {
-  case "$1" in
+  case "${1:-}" in
     LEG001) printf '%s\n' "max-expression-operators" ;;
     LEG002) printf '%s\n' "hoist-if-operators" ;;
     LEG003) printf '%s\n' "max-control-flow-depth" ;;
@@ -9,12 +9,12 @@ rule_name() {
     LEG008) printf '%s\n' "no-trivial-wrapper-functions" ;;
     LEG009) printf '%s\n' "prefer-early-return" ;;
     LEG010) printf '%s\n' "prefer-guard-clauses" ;;
-    *) shell_rule_name "$1" ;;
+    *) shell_rule_name "${1:-}" ;;
   esac
 }
 
 shell_rule_name() {
-  case "$1" in
+  case "${1:-}" in
     LEG016) printf '%s\n' "require-executable-shebang" ;;
     LEG017) printf '%s\n' "no-direct-shell-bin-smoke" ;;
     LEG024) printf '%s\n' "prefer-object-lookup" ;;
@@ -23,19 +23,22 @@ shell_rule_name() {
     LEG034) printf '%s\n' "prefer-case-over-long-if-chain" ;;
     LEG035) printf '%s\n' "no-bool-literal-args" ;;
     LEG038) printf '%s\n' "max-function-lines" ;;
+    LEG039) printf '%s\n' "prefer-functions" ;;
+    LEG040) printf '%s\n' "use-defaults-in-functions" ;;
+    LEG041) printf '%s\n' "no-unmatched-comments" ;;
   esac
 }
 
 rule_enabled() {
-  local code="$1"
+  local code="${1:-}"
   selector_matches_any "$code" SELECT || return 1
   selector_matches_any "$code" IGNORE && return 1
   return 0
 }
 
 selector_matches_any() {
-  local code="$1"
-  local array_name="$2"
+  local code="${1:-}"
+  local array_name="${2:-}"
   local selector
   local -n selectors_ref="$array_name"
   [[ "${#selectors_ref[@]}" -eq 0 ]] && return 1
@@ -46,8 +49,8 @@ selector_matches_any() {
 }
 
 selector_matches() {
-  local code="$1"
-  local selector="$2"
+  local code="${1:-}"
+  local selector="${2:-}"
   local name
   name="$(rule_name "$code")"
   [[ "$selector" == "all" ]] && return 0
@@ -56,8 +59,8 @@ selector_matches() {
 }
 
 line_ignores_code() {
-  local line="$1"
-  local code="$2"
+  local line="${1:-}"
+  local code="${2:-}"
   [[ "$line" != *noqa* ]] && return 1
   [[ "$line" == *"$code"* || "$line" == *"LEG"* ]]
 }

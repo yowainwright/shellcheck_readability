@@ -28,7 +28,7 @@ parse_args() {
 
 parse_one_arg() {
   ARG_SHIFT="1"
-  case "$1" in
+  case "${1:-}" in
     --config) CONFIG_PATH="${2:-}"; ARG_SHIFT="2" ;;
     --config=*) CONFIG_PATH="${1#*=}" ;;
     --output-format) OUTPUT_FORMAT="${2:-}"; ARG_SHIFT="2" ;;
@@ -40,13 +40,13 @@ parse_one_arg() {
     --exit-zero) EXIT_ZERO="1" ;;
     --version) printf '%s\n' "$VERSION"; exit 0 ;;
     -h|--help) usage; exit 0 ;;
-    -*) unknown_option "$1" ;;
-    *) TARGETS+=("$1") ;;
+    -*) unknown_option "${1:-}" ;;
+    *) TARGETS+=("${1:-}") ;;
   esac
 }
 
 unknown_option() {
-  printf 'unknown option: %s\n' "$1" >&2
+  printf 'unknown option: %s\n' "${1:-}" >&2
   usage >&2
   exit 2
 }

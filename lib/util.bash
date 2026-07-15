@@ -1,17 +1,17 @@
 trim() {
-  local value="$1"
+  local value="${1:-}"
   value="${value#"${value%%[![:space:]]*}"}"
   value="${value%"${value##*[![:space:]]}"}"
   printf '%s\n' "$value"
 }
 
 strip_comment() {
-  local line="$1"
+  local line="${1:-}"
   printf '%s\n' "${line%%#*}"
 }
 
 clean_scalar() {
-  local value="$1"
+  local value="${1:-}"
   value="$(trim "$value")"
   value="${value//\"/}"
   value="${value//\'/}"
@@ -19,7 +19,7 @@ clean_scalar() {
 }
 
 clean_list() {
-  local value="$1"
+  local value="${1:-}"
   value="${value#[}"
   value="${value%]}"
   value="${value//\"/}"
@@ -28,8 +28,8 @@ clean_list() {
 }
 
 csv_to_array() {
-  local array_name="$1"
-  local raw="$2"
+  local array_name="${1:-}"
+  local raw="${2:-}"
   local cleaned
   cleaned="$(clean_list "$raw")"
   IFS=',' read -r -a __parts <<< "$cleaned"
@@ -37,7 +37,7 @@ csv_to_array() {
 }
 
 append_csv_parts() {
-  local array_name="$1"
+  local array_name="${1:-}"
   shift
   local part
   local -n target_ref="$array_name"
@@ -49,8 +49,8 @@ append_csv_parts() {
 }
 
 count_occurrences() {
-  local text="$1"
-  local needle="$2"
+  local text="${1:-}"
+  local needle="${2:-}"
   local count="0"
   while [[ "$text" == *"$needle"* ]]; do
     text="${text#*"$needle"}"
@@ -60,7 +60,7 @@ count_occurrences() {
 }
 
 json_escape() {
-  local value="$1"
+  local value="${1:-}"
   value="${value//\\/\\\\}"
   value="${value//\"/\\\"}"
   value="${value//$'\n'/\\n}"
@@ -68,15 +68,15 @@ json_escape() {
 }
 
 first_word() {
-  local line="$1"
+  local line="${1:-}"
   local first
   read -r first _ <<< "$line"
   printf '%s\n' "$first"
 }
 
 path_matches_any() {
-  local path="$1"
-  local array_name="$2"
+  local path="${1:-}"
+  local array_name="${2:-}"
   local pattern
   local -n patterns_ref="$array_name"
   path="${path#./}"

@@ -45,7 +45,7 @@ write_fixture() {
 }
 
 run_linter() {
-  local format="$1"
+  local format="${1:-}"
   set +e
   OUTPUT="$(shellcheck-readability check sample/scripts/example.sh --output-format "$format" 2>&1)"
   STATUS="$?"
@@ -53,7 +53,7 @@ run_linter() {
 }
 
 fail() {
-  printf '%s\n' "$1" >&2
+  printf '%s\n' "${1:-}" >&2
   exit 1
 }
 
