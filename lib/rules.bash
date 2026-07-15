@@ -25,6 +25,7 @@ shell_rule_name() {
     LEG038) printf '%s\n' "max-function-lines" ;;
     LEG039) printf '%s\n' "prefer-functions" ;;
     LEG040) printf '%s\n' "use-defaults-in-functions" ;;
+    LEG041) printf '%s\n' "no-unmatched-comments" ;;
   esac
 }
 

@@ -96,6 +96,14 @@ apply_config_assignment() {
 apply_config_value() {
   local key="${1:-}"
   local value="${2:-}"
+  apply_core_config_value "$key" "$value" && return
+  apply_shell_config_value "$key" "$value" && return
+  apply_comment_config_value "$key" "$value"
+}
+
+apply_core_config_value() {
+  local key="${1:-}"
+  local value="${2:-}"
   case "$key" in
     select) reset_array_from_csv SELECT "$value" ;;
     ignore) reset_array_from_csv IGNORE "$value" ;;
@@ -107,9 +115,29 @@ apply_config_value() {
     min-case-chain-length) MIN_CASE_CHAIN_LENGTH="$(clean_scalar "$value")" ;;
     min-object-lookup-chain-length) MIN_OBJECT_LOOKUP_CHAIN_LENGTH="$(clean_scalar "$value")" ;;
     min-dirname-match-depth) MIN_DIRNAME_MATCH_DEPTH="$(clean_scalar "$value")" ;;
+    *) return 1 ;;
+  esac
+}
+
+apply_shell_config_value() {
+  local key="${1:-}"
+  local value="${2:-}"
+  case "$key" in
     executable-entry-patterns) reset_array_from_csv EXECUTABLE_ENTRY_PATTERNS "$value" ;;
     direct-shell-entry-patterns) reset_array_from_csv DIRECT_SHELL_ENTRY_PATTERNS "$value" ;;
     executable-runtimes) reset_array_from_csv EXECUTABLE_RUNTIMES "$value" ;;
+    *) return 1 ;;
+  esac
+}
+
+apply_comment_config_value() {
+  local key="${1:-}"
+  local value="${2:-}"
+  case "$key" in
+    comment-matchers) reset_array_from_csv COMMENT_MATCHERS "$value" ;;
+    comment-prefix-identifiers) reset_array_from_csv COMMENT_PREFIX_IDENTIFIERS "$value" ;;
+    comment-suffix-identifiers) reset_array_from_csv COMMENT_SUFFIX_IDENTIFIERS "$value" ;;
+    *) return 1 ;;
   esac
 }
 

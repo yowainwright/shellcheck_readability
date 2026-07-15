@@ -33,6 +33,9 @@ max-function-lines = 20
 min-case-chain-length = 3
 min-object-lookup-chain-length = 3
 min-dirname-match-depth = 3
+comment-matchers = []
+comment-prefix-identifiers = []
+comment-suffix-identifiers = []
 ```
 
 Selectors use the same model as the other legibility tools: `select`, `ignore`, rule codes, rule names, and `LEG`.
@@ -59,6 +62,7 @@ Only implemented rules are listed here. Each rule links to its do / don't diff e
 | [`LEG038`](#max-function-lines-diff) | `max-function-lines` | Keep shell functions within a focused line budget. |
 | [`LEG039`](#prefer-functions-diff) | `prefer-functions` | Prefer named functions over top-level script logic. |
 | [`LEG040`](#use-defaults-in-functions-diff) | `use-defaults-in-functions` | Use defaulted or guarded positional args in functions. |
+| [`LEG041`](#no-unmatched-comments-diff) | `no-unmatched-comments` | Require comments to match configured ownership markers. |
 
 ---
 
@@ -474,6 +478,38 @@ None.
   }
 ```
 
+---
+
+<a id="no-unmatched-comments"></a>
+
+### `no-unmatched-comments`
+
+Reject comments that do not match a configured regular-expression matcher, prefix identifier, or suffix identifier.
+
+Shebangs, ShellCheck directives, and `noqa` directives are ignored. No matcher or identifier is configured by default, so selecting this rule rejects ordinary comments.
+
+#### options
+
+- `comment-matchers`: case-insensitive Bash regular expressions matched anywhere in the comment body. Default: `[]`.
+- `comment-prefix-identifiers`: case-insensitive literal identifiers matched at the start of the trimmed comment body. Default: `[]`.
+- `comment-suffix-identifiers`: case-insensitive literal identifiers matched at the end of the trimmed comment body. Default: `[]`.
+
+<a id="no-unmatched-comments-diff"></a>
+
+#### do / don't
+
+```diff
+- # explain this branch
++ require_target
+```
+
+With `HUMAN` as an allowed prefix identifier:
+
+```diff
+- # preserve the legacy response order
++ # HUMAN: preserve the legacy response order
+```
+
 ## Rule Function Testing
 
 Rule functions are named after the lint checks and accept optional values, so tests can call them directly:
@@ -484,6 +520,7 @@ check_max_expression_operators "example.sh" "7" 'build && test && package'
 check_no_bool_literal_args "example.sh" "9" 'create_user "$name" true false'
 check_prefer_functions "example.sh" "5" "docker build ."
 check_use_defaults_in_functions "example.sh" "6" 'local target="$1"'
+check_no_unmatched_comments "example.sh" "4" "# explain this branch"
 ```
 
 ## Tests

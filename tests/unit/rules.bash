@@ -22,6 +22,13 @@ source "$ROOT_DIR/lib/files.bash"
 source "$ROOT_DIR/lib/lint.bash"
 
 main() {
+  test_core_rules
+  test_function_rules
+  test_comment_rules
+  printf '%s\n' "ok"
+}
+
+test_core_rules() {
   test_hoist_if_operators
   test_max_expression_operators
   test_bool_literal_args
@@ -29,6 +36,9 @@ main() {
   test_max_function_lines
   test_prefer_functions
   test_prefer_functions_allows_dispatch
+}
+
+test_function_rules() {
   test_use_defaults_in_functions
   test_use_defaults_in_functions_allows_defaults
   test_use_defaults_in_functions_reports_separate_assignment
@@ -37,7 +47,17 @@ main() {
   test_use_defaults_in_functions_reports_opening_line_binding
   test_split_function_declaration_reports_arg_binding
   test_inline_function_does_not_leak_function_state
-  printf '%s\n' "ok"
+}
+
+test_comment_rules() {
+  test_no_unmatched_comments
+  test_no_unmatched_comments_allows_prefix_identifier
+  test_no_unmatched_comments_allows_suffix_identifier
+  test_no_unmatched_comments_allows_exact_suffix_identifier
+  test_no_unmatched_comments_allows_matcher
+  test_no_unmatched_comments_rejects_partial_identifiers
+  test_no_unmatched_comments_ignores_directives
+  test_no_unmatched_comments_skips_quoted_hashes
 }
 
 reset_test_state() {
@@ -47,6 +67,9 @@ reset_test_state() {
   EXECUTABLE_ENTRY_PATTERNS=()
   DIRECT_SHELL_ENTRY_PATTERNS=()
   EXECUTABLE_RUNTIMES=()
+  COMMENT_MATCHERS=()
+  COMMENT_PREFIX_IDENTIFIERS=()
+  COMMENT_SUFFIX_IDENTIFIERS=()
   init_defaults
   DIAG_CODES=()
   DIAG_PATHS=()
@@ -157,6 +180,62 @@ test_inline_function_does_not_leak_function_state() {
   reset_test_state
   update_function_state "example.sh" "3" 'deploy() { local target="${1:-staging}"; }'
   [[ "$IN_FUNCTION" == "0" ]] || fail "expected inline function to stay closed"
+}
+
+test_no_unmatched_comments() {
+  reset_test_state
+  check_no_unmatched_comments "example.sh" "4" "# explain this branch"
+  assert_has_code "LEG041"
+}
+
+test_no_unmatched_comments_allows_prefix_identifier() {
+  reset_test_state
+  COMMENT_PREFIX_IDENTIFIERS+=("HUMAN")
+  check_no_unmatched_comments "example.sh" "4" "# HUMAN: legacy API order"
+  assert_no_diagnostics
+}
+
+test_no_unmatched_comments_allows_suffix_identifier() {
+  reset_test_state
+  COMMENT_SUFFIX_IDENTIFIERS+=("@owned")
+  check_no_unmatched_comments "example.sh" "4" 'deploy "$target" # preserve order @owned'
+  assert_no_diagnostics
+}
+
+test_no_unmatched_comments_allows_exact_suffix_identifier() {
+  reset_test_state
+  COMMENT_SUFFIX_IDENTIFIERS+=("@owned")
+  check_no_unmatched_comments "example.sh" "4" "# @owned"
+  assert_no_diagnostics
+}
+
+test_no_unmatched_comments_allows_matcher() {
+  reset_test_state
+  COMMENT_MATCHERS+=("ENG-[0-9]+")
+  check_no_unmatched_comments "example.sh" "4" "# ENG-482 tracks this branch"
+  assert_no_diagnostics
+}
+
+test_no_unmatched_comments_rejects_partial_identifiers() {
+  reset_test_state
+  COMMENT_PREFIX_IDENTIFIERS+=("HUMAN")
+  COMMENT_SUFFIX_IDENTIFIERS+=("@owned")
+  check_no_unmatched_comments "example.sh" "4" "# HUMANIZED generated not@owned"
+  assert_has_code "LEG041"
+}
+
+test_no_unmatched_comments_ignores_directives() {
+  reset_test_state
+  check_no_unmatched_comments "example.sh" "1" "#!/usr/bin/env bash"
+  check_no_unmatched_comments "example.sh" "2" "# shellcheck disable=SC1091"
+  check_no_unmatched_comments "example.sh" "3" "# noqa: LEG041"
+  assert_no_diagnostics
+}
+
+test_no_unmatched_comments_skips_quoted_hashes() {
+  reset_test_state
+  check_no_unmatched_comments "example.sh" "7" "printf '%s\n' '#!/usr/bin/env bash'"
+  assert_no_diagnostics
 }
 
 assert_has_code() {

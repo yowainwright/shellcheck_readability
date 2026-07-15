@@ -54,6 +54,7 @@ scan_line() {
   local raw_line="${3:-}"
   local line
   CURRENT_LINE_TEXT="$raw_line"
+  check_no_unmatched_comments "$path" "$line_number" "$raw_line"
   line="$(normalized_code_line "$raw_line")"
   [[ -z "$line" ]] && return
   run_line_checks "$path" "$line_number" "$line"
@@ -594,6 +595,28 @@ check_use_defaults_in_functions() {
   add_diag "$path" "$line_number" "1" "LEG040" "$message"
 }
 
+check_no_unmatched_comments() {
+  local path="${1:-$SCAN_PATH}"
+  local line_number="${2:-$SCAN_LINE_NUMBER}"
+  local line="${3:-$CURRENT_LINE_TEXT}"
+  local index body
+  index="$(shell_comment_index "$line")" || return
+  body="${line:$((index + 1))}"
+  shell_comment_ignored "$index" "$body" && return
+  comment_allowed "$body" && return
+  report_no_unmatched_comment "$path" "$line_number" "$index"
+}
+
+report_no_unmatched_comment() {
+  local path="${1:-}"
+  local line_number="${2:-}"
+  local index="${3:-0}"
+  local column message
+  column=$((index + 1))
+  message="Comment does not match a configured ownership matcher, prefix, or suffix."
+  add_diag "$path" "$line_number" "$column" "LEG041" "$message"
+}
+
 function_scoped_line() {
   local line="${1:-}"
   [[ "$IN_FUNCTION" == "1" ]] && printf '%s\n' "$line" && return
@@ -769,6 +792,167 @@ positional_suffix_guarded() {
     \?*) return 0 ;;
   esac
   return 1
+}
+
+shell_comment_index() {
+  local line="${1:-}"
+  local index char in_single="0" in_double="0" escaped="0"
+  for ((index = 0; index < ${#line}; index++)); do
+    char="${line:index:1}"
+    [[ "$escaped" == "1" ]] && escaped="0" && continue
+    comment_escape_starts "$char" "$in_single" && escaped="1" && continue
+    single_quote_opens "$char" "$in_double" && in_single="$(toggle_flag "$in_single")" && continue
+    double_quote_opens "$char" "$in_single" && in_double="$(toggle_flag "$in_double")" && continue
+    shell_comment_at "$line" "$index" "$char" "$in_single" "$in_double" && return
+  done
+  return 1
+}
+
+comment_escape_starts() {
+  [[ "${1:-}" == "\\" ]] || return 1
+  [[ "${2:-}" == "0" ]]
+}
+
+single_quote_opens() {
+  [[ "${1:-}" == "'" ]] || return 1
+  [[ "${2:-}" == "0" ]]
+}
+
+double_quote_opens() {
+  [[ "${1:-}" == '"' ]] || return 1
+  [[ "${2:-}" == "0" ]]
+}
+
+shell_comment_at() {
+  local line="${1:-}"
+  local index="${2:-0}"
+  local char="${3:-}"
+  local in_single="${4:-0}"
+  local in_double="${5:-0}"
+  [[ "$char" == "#" ]] || return 1
+  [[ "$in_single$in_double" == "00" ]] || return 1
+  comment_start_allowed "$line" "$index" || return 1
+  printf '%s\n' "$index"
+}
+
+toggle_flag() {
+  [[ "${1:-}" == "1" ]] && printf '%s\n' "0" && return
+  printf '%s\n' "1"
+}
+
+comment_start_allowed() {
+  local line="${1:-}"
+  local index="${2:-0}"
+  local previous
+  (( index == 0 )) && return 0
+  previous="${line:$((index - 1)):1}"
+  [[ "$previous" =~ [[:space:]] ]] && return 0
+  comment_starts_after_operator "$previous"
+}
+
+comment_starts_after_operator() {
+  case "${1:-}" in
+    ";"|"|"|"&") return 0 ;;
+  esac
+  return 1
+}
+
+shell_comment_ignored() {
+  local index="${1:-0}"
+  local body
+  body="$(trim "${2:-}")"
+  (( index == 0 )) && [[ "$body" == "!"* ]] && return 0
+  shell_comment_directive "$body"
+}
+
+shell_comment_directive() {
+  local body="${1:-}"
+  body="${body,,}"
+  [[ "$body" == shellcheck* ]] && return 0
+  [[ "$body" == noqa* ]]
+}
+
+comment_allowed() {
+  local body
+  body="$(trim "${1:-}")"
+  comment_matches_any_regex "$body" && return 0
+  comment_has_prefix_identifier "$body" && return 0
+  comment_has_suffix_identifier "$body"
+}
+
+comment_matches_any_regex() {
+  local body="${1:-}"
+  local matcher
+  for matcher in "${COMMENT_MATCHERS[@]}"; do
+    comment_matches_regex "$body" "$matcher" && return 0
+  done
+  return 1
+}
+
+comment_matches_regex() {
+  local body="${1:-}"
+  local matcher
+  matcher="$(trim "${2:-}")"
+  [[ -n "$matcher" ]] || return 1
+  [[ "${body,,}" =~ ${matcher,,} ]]
+}
+
+comment_has_prefix_identifier() {
+  local body="${1:-}"
+  local identifier
+  for identifier in "${COMMENT_PREFIX_IDENTIFIERS[@]}"; do
+    comment_prefix_matches "$body" "$identifier" && return 0
+  done
+  return 1
+}
+
+comment_prefix_matches() {
+  local body identifier remainder
+  body="$(trim "${1:-}")"
+  identifier="$(trim "${2:-}")"
+  [[ -n "$identifier" ]] || return 1
+  body="${body,,}"
+  identifier="${identifier,,}"
+  [[ "$body" == "$identifier"* ]] || return 1
+  identifier_ends_word "$identifier" || return 0
+  remainder="${body:${#identifier}:1}"
+  identifier_boundary_char "$remainder"
+}
+
+comment_has_suffix_identifier() {
+  local body="${1:-}"
+  local identifier
+  for identifier in "${COMMENT_SUFFIX_IDENTIFIERS[@]}"; do
+    comment_suffix_matches "$body" "$identifier" && return 0
+  done
+  return 1
+}
+
+comment_suffix_matches() {
+  local body identifier offset previous
+  body="$(trim "${1:-}")"
+  identifier="$(trim "${2:-}")"
+  [[ -n "$identifier" ]] || return 1
+  body="${body,,}"
+  identifier="${identifier,,}"
+  [[ "$body" == *"$identifier" ]] || return 1
+  offset=$((${#body} - ${#identifier}))
+  (( offset == 0 )) && return 0
+  previous="${body:$((offset - 1)):1}"
+  identifier_boundary_char "$previous"
+}
+
+identifier_ends_word() {
+  local value="${1:-}"
+  local last
+  last="${value:$((${#value} - 1)):1}"
+  [[ "$last" =~ [A-Za-z0-9_] ]]
+}
+
+identifier_boundary_char() {
+  local char="${1:-}"
+  [[ -z "$char" ]] && return 0
+  [[ ! "$char" =~ [A-Za-z0-9_] ]]
 }
 
 condition_text() {
