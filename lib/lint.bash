@@ -54,6 +54,7 @@ scan_line() {
   local raw_line="${3:-}"
   local line
   CURRENT_LINE_TEXT="$raw_line"
+  check_no_automated_comment_attribution "$path" "$line_number" "$raw_line"
   check_no_unmatched_comments "$path" "$line_number" "$raw_line"
   line="$(normalized_code_line "$raw_line")"
   [[ -z "$line" ]] && return
@@ -600,6 +601,7 @@ check_no_unmatched_comments() {
   local line_number="${2:-$SCAN_LINE_NUMBER}"
   local line="${3:-$CURRENT_LINE_TEXT}"
   local index body
+  rule_enabled "LEG041" || return
   index="$(shell_comment_index "$line")" || return
   body="${line:$((index + 1))}"
   shell_comment_ignored "$index" "$body" && return
@@ -615,6 +617,120 @@ report_no_unmatched_comment() {
   column=$((index + 1))
   message="Comment does not match a configured ownership matcher, prefix, or suffix."
   add_diag "$path" "$line_number" "$column" "LEG041" "$message"
+}
+
+check_no_automated_comment_attribution() {
+  local path="${1:-$SCAN_PATH}"
+  local line_number="${2:-$SCAN_LINE_NUMBER}"
+  local line="${3:-$CURRENT_LINE_TEXT}"
+  local index body identifier
+  rule_enabled "LEG042" || return
+  index="$(shell_comment_index "$line")" || return
+  body="${line:$((index + 1))}"
+  shell_comment_ignored "$index" "$body" && return
+  identifier="$(automated_comment_identifier "$body")" || return
+  report_automated_comment_attribution "$path" "$line_number" "$index" "$identifier"
+}
+
+report_automated_comment_attribution() {
+  local path="${1:-}"
+  local line_number="${2:-}"
+  local index="${3:-0}"
+  local identifier="${4:-}"
+  local column message
+  column=$((index + 1))
+  message="Comment contains the prohibited attribution \"$identifier\"."
+  add_diag "$path" "$line_number" "$column" "LEG042" "$message"
+}
+
+automated_comment_identifier() {
+  local body="${1:-}"
+  local identifier
+  for identifier in "${AUTOMATED_COMMENT_IDENTIFIERS[@]}"; do
+    comment_attributes_to "$body" "$identifier" || continue
+    printf '%s\n' "$identifier"
+    return 0
+  done
+  return 1
+}
+
+comment_attributes_to() {
+  local body="${1:-}"
+  local identifier="${2:-}"
+  local normalized_body normalized_identifier
+  normalized_body="$(normalize_attribution_text "$body")"
+  normalized_identifier="$(normalize_attribution_text "$identifier")"
+  [[ -n "$normalized_identifier" ]] || return 1
+  comment_author_matches "$body" "$normalized_identifier" && return 0
+  comment_has_generation_signature "$normalized_body" "$normalized_identifier"
+}
+
+comment_author_matches() {
+  local body="${1:-}"
+  local identifier="${2:-}"
+  local author
+  author="$(comment_author_value "$body")" || return 1
+  phrase_present "$(normalize_attribution_text "$author")" "$identifier"
+}
+
+comment_author_value() {
+  local body="${1:-}"
+  local pattern='(^|[[:space:]])@author([[:space:]]|:)+(.+)$'
+  body="${body,,}"
+  [[ "$body" =~ $pattern ]] || return 1
+  printf '%s\n' "${BASH_REMATCH[3]}"
+}
+
+comment_has_generation_signature() {
+  local body="${1:-}"
+  local identifier="${2:-}"
+  local verb
+  for verb in authored created generated produced written; do
+    generation_signature_present "$body" "$identifier" "$verb" && return 0
+  done
+  return 1
+}
+
+generation_signature_present() {
+  local body="${1:-}"
+  local identifier="${2:-}"
+  local verb="${3:-}"
+  phrase_present "$body" "$identifier $verb" && return 0
+  passive_generation_signature "$body" "$identifier" "$verb"
+}
+
+passive_generation_signature() {
+  local body="${1:-}"
+  local identifier="${2:-}"
+  local verb="${3:-}"
+  local prefix
+  trailing_phrase_present "$body" "$identifier" || return 1
+  prefix="$(trim "${body%"$identifier"}")"
+  trailing_phrase_present "$prefix" "$verb by" && return 0
+  trailing_phrase_present "$prefix" "$verb by a" && return 0
+  trailing_phrase_present "$prefix" "$verb by an"
+}
+
+normalize_attribution_text() {
+  local value="${1:-}"
+  local -a words
+  local IFS=" "
+  value="${value,,}"
+  value="${value//[![:alnum:]]/ }"
+  read -r -a words <<< "$value"
+  printf '%s\n' "${words[*]}"
+}
+
+phrase_present() {
+  local value="${1:-}"
+  local phrase="${2:-}"
+  [[ " $value " == *" $phrase "* ]]
+}
+
+trailing_phrase_present() {
+  local value="${1:-}"
+  local phrase="${2:-}"
+  [[ " $value" == *" $phrase" ]]
 }
 
 function_scoped_line() {

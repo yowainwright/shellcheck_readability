@@ -26,6 +26,7 @@ EXECUTABLE_RUNTIMES=()
 COMMENT_MATCHERS=()
 COMMENT_PREFIX_IDENTIFIERS=()
 COMMENT_SUFFIX_IDENTIFIERS=()
+AUTOMATED_COMMENT_IDENTIFIERS=()
 TARGETS=()
 FILES=()
 DIAG_PATHS=()
@@ -40,6 +41,7 @@ init_defaults() {
   add_default_excludes
   add_default_entry_patterns
   add_default_runtimes
+  add_default_automated_comment_identifiers
 }
 
 add_default_excludes() {
@@ -62,4 +64,16 @@ add_default_runtimes() {
   EXECUTABLE_RUNTIMES+=("sh")
   EXECUTABLE_RUNTIMES+=("zsh")
   EXECUTABLE_RUNTIMES+=("ksh")
+}
+
+add_default_automated_comment_identifiers() {
+  AUTOMATED_COMMENT_IDENTIFIERS+=("ai")
+  AUTOMATED_COMMENT_IDENTIFIERS+=("chatgpt")
+  AUTOMATED_COMMENT_IDENTIFIERS+=("claude")
+  AUTOMATED_COMMENT_IDENTIFIERS+=("codex")
+  AUTOMATED_COMMENT_IDENTIFIERS+=("copilot")
+  AUTOMATED_COMMENT_IDENTIFIERS+=("gemini")
+  AUTOMATED_COMMENT_IDENTIFIERS+=("gpt")
+  AUTOMATED_COMMENT_IDENTIFIERS+=("llm")
+  AUTOMATED_COMMENT_IDENTIFIERS+=("openai")
 }

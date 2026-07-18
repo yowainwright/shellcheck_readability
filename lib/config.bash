@@ -137,6 +137,7 @@ apply_comment_config_value() {
     comment-matchers) reset_array_from_csv COMMENT_MATCHERS "$value" ;;
     comment-prefix-identifiers) reset_array_from_csv COMMENT_PREFIX_IDENTIFIERS "$value" ;;
     comment-suffix-identifiers) reset_array_from_csv COMMENT_SUFFIX_IDENTIFIERS "$value" ;;
+    automated-comment-identifiers) reset_array_from_csv AUTOMATED_COMMENT_IDENTIFIERS "$value" ;;
     *) return 1 ;;
   esac
 }
