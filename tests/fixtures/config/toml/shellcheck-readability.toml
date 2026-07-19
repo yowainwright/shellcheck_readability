@@ -1,0 +1,2 @@
+max-function-lines = 19
+select = ["LEG", "LEG041"]

@@ -1,0 +1,4 @@
+max-function-lines: 18
+select:
+  - LEG
+  - LEG041

@@ -28,7 +28,29 @@ main() {
   test_core_rules
   test_function_rules
   test_comment_rules
+  test_config_formats
   printf '%s\n' "ok"
+}
+
+test_config_formats() {
+  test_config_fixture "rc" ".shellcheck-readabilityrc" "17"
+  test_config_fixture "yaml" ".shellcheck-readability.yml" "18"
+  test_config_fixture "toml" "shellcheck-readability.toml" "19"
+}
+
+test_config_fixture() {
+  local format="${1:-}"
+  local filename="${2:-}"
+  local expected_max="${3:-}"
+  local dir path resolved
+  reset_test_state
+  dir="$ROOT_DIR/tests/fixtures/config/$format"
+  path="$dir/$filename"
+  resolved="$(config_in_dir "$dir")"
+  assert_equal "$path" "$resolved"
+  read_config_file "$path"
+  assert_equal "$expected_max" "$MAX_FUNCTION_LINES"
+  assert_equal "LEG LEG041" "${SELECT[*]}"
 }
 
 test_core_rules() {
@@ -455,6 +477,14 @@ assert_has_code() {
 assert_no_diagnostics() {
   [[ "${#DIAG_CODES[@]}" -eq 0 ]] && return
   printf 'expected no diagnostics, got %s\n' "${DIAG_CODES[*]}" >&2
+  exit 1
+}
+
+assert_equal() {
+  local expected="${1:-}"
+  local actual="${2:-}"
+  [[ "$actual" == "$expected" ]] && return
+  printf 'expected %s, got %s\n' "$expected" "$actual" >&2
   exit 1
 }
 

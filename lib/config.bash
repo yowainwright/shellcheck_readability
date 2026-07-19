@@ -1,6 +1,11 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2034
 
+CONFIG_PENDING_KEY=""
+CONFIG_PENDING_VALUES=()
+CONFIG_ASSIGNMENT_KEY=""
+CONFIG_ASSIGNMENT_VALUE=""
+
 load_config() {
   local path
   path="$(resolve_config_path)"
@@ -24,6 +29,9 @@ search_config_upward() {
 
 config_in_dir() {
   local dir="${1:-}"
+  print_existing "$dir/.shellcheck-readabilityrc" && return 0
+  print_existing "$dir/.shellcheck-readability.yml" && return 0
+  print_existing "$dir/.shellcheck-readability.yaml" && return 0
   print_existing "$dir/shellcheck-readability.toml" && return 0
   print_existing "$dir/.shellcheck-readability.toml" && return 0
   print_existing "$dir/pyproject.toml"
@@ -52,11 +60,13 @@ read_config_lines() {
   local in_section="${2:-}"
   local line
   local -a lines
+  reset_pending_config_values
   mapfile -t lines < "$path"
   for line in "${lines[@]}"; do
     process_config_line "$line" "$in_section"
     in_section="$CONFIG_IN_SECTION"
   done
+  apply_pending_config_values
 }
 
 process_config_line() {
@@ -65,7 +75,58 @@ process_config_line() {
   line="$(strip_comment "$line")"
   line="$(trim "$line")"
   [[ -z "$line" ]] && return
+  append_pending_config_value "$line" && return
+  apply_pending_config_values
+  open_config_value_list "$line" && return
   process_config_content "$line"
+}
+
+append_pending_config_value() {
+  local line="${1:-}"
+  local value
+  [[ -n "$CONFIG_PENDING_KEY" ]] || return 1
+  [[ "$line" == "- "* ]] || return 1
+  value="$(clean_scalar "${line#- }")"
+  CONFIG_PENDING_VALUES+=("$value")
+}
+
+open_config_value_list() {
+  local line="${1:-}"
+  local key
+  [[ "$CONFIG_IN_SECTION" == "1" ]] || return 1
+  [[ "$line" == *: ]] || return 1
+  key="$(trim "${line%:}")"
+  config_array_key "$key" || return 1
+  CONFIG_PENDING_KEY="$key"
+  CONFIG_PENDING_VALUES=()
+}
+
+apply_pending_config_values() {
+  local joined
+  [[ -n "$CONFIG_PENDING_KEY" ]] || return
+  joined="$(join_pending_config_values)"
+  apply_config_value "$CONFIG_PENDING_KEY" "[$joined]"
+  reset_pending_config_values
+}
+
+join_pending_config_values() {
+  local IFS=,
+  printf '%s\n' "${CONFIG_PENDING_VALUES[*]}"
+}
+
+reset_pending_config_values() {
+  CONFIG_PENDING_KEY=""
+  CONFIG_PENDING_VALUES=()
+}
+
+config_array_key() {
+  case "${1:-}" in
+    select|ignore|exclude) return 0 ;;
+    executable-entry-patterns|direct-shell-entry-patterns|executable-runtimes) return 0 ;;
+    comment-matchers|comment-prefix-identifiers|comment-suffix-identifiers) return 0 ;;
+    automated-comment-identifiers) return 0 ;;
+  esac
+  return 1
 }
 
 process_config_content() {
@@ -87,10 +148,30 @@ update_config_section() {
 
 apply_config_assignment() {
   local line="${1:-}"
-  local key value
-  key="$(trim "${line%%=*}")"
-  value="$(trim "${line#*=}")"
-  apply_config_value "$key" "$value"
+  parse_config_assignment "$line" || return
+  apply_config_value "$CONFIG_ASSIGNMENT_KEY" "$CONFIG_ASSIGNMENT_VALUE"
+}
+
+parse_config_assignment() {
+  local line="${1:-}"
+  parse_equals_config_assignment "$line" && return
+  parse_colon_config_assignment "$line"
+}
+
+parse_equals_config_assignment() {
+  local line="${1:-}"
+  local equals_pattern='^([A-Za-z0-9-]+)[[:space:]]*=[[:space:]]*(.*)$'
+  [[ "$line" =~ $equals_pattern ]] || return 1
+  CONFIG_ASSIGNMENT_KEY="${BASH_REMATCH[1]}"
+  CONFIG_ASSIGNMENT_VALUE="${BASH_REMATCH[2]}"
+}
+
+parse_colon_config_assignment() {
+  local line="${1:-}"
+  local colon_pattern='^([A-Za-z0-9-]+)[[:space:]]*:[[:space:]]*(.*)$'
+  [[ "$line" =~ $colon_pattern ]] || return 1
+  CONFIG_ASSIGNMENT_KEY="${BASH_REMATCH[1]}"
+  CONFIG_ASSIGNMENT_VALUE="${BASH_REMATCH[2]}"
 }
 
 apply_config_value() {
