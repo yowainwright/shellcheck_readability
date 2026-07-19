@@ -13,6 +13,51 @@ brew tap yowainwright/shellcheck_readability
 brew install --HEAD shellcheck-readability
 ```
 
+## Rules
+
+Only implemented rules are listed here. Each rule links to its do / don't diff example.
+
+| Code | Rule | Summary |
+| --- | --- | --- |
+| [`LEG001`](#max-expression-operators-diff) | `max-expression-operators` | Limit `&&`, `||`, and pipeline-heavy shell expressions. |
+| [`LEG002`](#hoist-if-operators-diff) | `hoist-if-operators` | Prefer named checks before operator-heavy conditions. |
+| [`LEG003`](#max-control-flow-depth-diff) | `max-control-flow-depth` | Limit nested control flow. |
+| [`LEG005`](#no-quadratic-patterns-diff) | `no-quadratic-patterns` | Flag nested loops. |
+| [`LEG009`](#prefer-early-return-diff) | `prefer-early-return` | Avoid `else` after a branch exits. |
+| [`LEG010`](#prefer-guard-clauses-diff) | `prefer-guard-clauses` | Prefer guard clauses inside functions. |
+| [`LEG016`](#require-executable-shebang-diff) | `require-executable-shebang` | Require executable shell entries to have a shebang. |
+| [`LEG017`](#no-direct-shell-bin-smoke-diff) | `no-direct-shell-bin-smoke` | Prefer installed-command smoke tests over direct shell entry files. |
+| [`LEG024`](#prefer-object-lookup-diff) | `prefer-object-lookup` | Prefer `case` or lookup-style flow over repeated equality checks. |
+| [`LEG025`](#require-filename-matches-dirname-diff) | `require-filename-matches-dirname` | Require files in named subdirectories to match the directory name. |
+| [`LEG026`](#no-mixed-filename-casing-diff) | `no-mixed-filename-casing` | Avoid filenames that mix casing conventions. |
+| [`LEG034`](#prefer-case-over-long-if-chain-diff) | `prefer-case-over-long-if-chain` | Prefer `case` over long `elif` chains comparing the same value. |
+| [`LEG035`](#no-bool-literal-args-diff) | `no-bool-literal-args` | Avoid boolean literal arguments. |
+| [`LEG038`](#max-function-lines-diff) | `max-function-lines` | Keep shell functions within a focused line budget. |
+| [`LEG039`](#prefer-functions-diff) | `prefer-functions` | Prefer named functions over top-level script logic. |
+| [`LEG040`](#use-defaults-in-functions-diff) | `use-defaults-in-functions` | Use defaulted or guarded positional args in functions. |
+| [`LEG041`](#no-unmatched-comments-diff) | `no-unmatched-comments` | Policy opt-in. Require comments to match configured ownership markers. |
+| [`LEG042`](#no-automated-comment-attribution-diff) | `no-automated-comment-attribution` | Policy opt-in. Reject explicit automated attribution signatures. |
+
+## Recipes
+
+The comment rules are intentionally absent from broad selectors because agent sessions, human editing, and commit gates need different enforcement. Select them directly by code or name.
+
+```toml
+select = ["LEG", "LEG041", "LEG042"]
+comment-matchers = ['(^|[^[:alnum:]_])(ENG|OPS)-[0-9]+([^[:alnum:]_]|$)']
+comment-prefix-identifiers = ["HUMAN", "LEGAL"]
+comment-suffix-identifiers = ["@owned"]
+```
+
+Agents should run the policy against the files they touched and follow these ownership constraints:
+
+- Do not add source comments, matcher text, or prefix/suffix identifiers.
+- Preserve matching comments unless comment cleanup is explicitly in scope.
+- Remove an unmatched comment introduced during the session instead of granting it a marker.
+- Leave pre-existing unmatched comments unchanged when they are outside the task.
+
+Humans can use `--exit-zero` for advisory feedback while editing. Commit gates should use the same committed configuration without `--exit-zero`.
+
 ## Use
 
 ```sh
@@ -42,30 +87,7 @@ automated-comment-identifiers = ["ai", "chatgpt", "claude", "codex", "copilot", 
 Selectors use the same model as the other legibility tools: `select`, `ignore`, rule codes, rule names, and `LEG`.
 Comment rules are policy opt-ins and are excluded from the broad `LEG` and `all` selectors.
 
-## Implemented Rules
-
-Only implemented rules are listed here. Each rule links to its do / don't diff example.
-
-| Code | Rule | Summary |
-| --- | --- | --- |
-| [`LEG001`](#max-expression-operators-diff) | `max-expression-operators` | Limit `&&`, `||`, and pipeline-heavy shell expressions. |
-| [`LEG002`](#hoist-if-operators-diff) | `hoist-if-operators` | Prefer named checks before operator-heavy conditions. |
-| [`LEG003`](#max-control-flow-depth-diff) | `max-control-flow-depth` | Limit nested control flow. |
-| [`LEG005`](#no-quadratic-patterns-diff) | `no-quadratic-patterns` | Flag nested loops. |
-| [`LEG009`](#prefer-early-return-diff) | `prefer-early-return` | Avoid `else` after a branch exits. |
-| [`LEG010`](#prefer-guard-clauses-diff) | `prefer-guard-clauses` | Prefer guard clauses inside functions. |
-| [`LEG016`](#require-executable-shebang-diff) | `require-executable-shebang` | Require executable shell entries to have a shebang. |
-| [`LEG017`](#no-direct-shell-bin-smoke-diff) | `no-direct-shell-bin-smoke` | Prefer installed-command smoke tests over direct shell entry files. |
-| [`LEG024`](#prefer-object-lookup-diff) | `prefer-object-lookup` | Prefer `case` or lookup-style flow over repeated equality checks. |
-| [`LEG025`](#require-filename-matches-dirname-diff) | `require-filename-matches-dirname` | Require files in named subdirectories to match the directory name. |
-| [`LEG026`](#no-mixed-filename-casing-diff) | `no-mixed-filename-casing` | Avoid filenames that mix casing conventions. |
-| [`LEG034`](#prefer-case-over-long-if-chain-diff) | `prefer-case-over-long-if-chain` | Prefer `case` over long `elif` chains comparing the same value. |
-| [`LEG035`](#no-bool-literal-args-diff) | `no-bool-literal-args` | Avoid boolean literal arguments. |
-| [`LEG038`](#max-function-lines-diff) | `max-function-lines` | Keep shell functions within a focused line budget. |
-| [`LEG039`](#prefer-functions-diff) | `prefer-functions` | Prefer named functions over top-level script logic. |
-| [`LEG040`](#use-defaults-in-functions-diff) | `use-defaults-in-functions` | Use defaulted or guarded positional args in functions. |
-| [`LEG041`](#no-unmatched-comments-diff) | `no-unmatched-comments` | Policy opt-in. Require comments to match configured ownership markers. |
-| [`LEG042`](#no-automated-comment-attribution-diff) | `no-automated-comment-attribution` | Policy opt-in. Reject explicit automated attribution signatures. |
+## Rule reference
 
 ---
 
@@ -482,26 +504,6 @@ None.
 ```
 
 ---
-
-## Comment policy
-
-The comment rules are intentionally absent from broad selectors because agent sessions, human editing, and commit gates need different enforcement. Select them directly by code or name.
-
-```toml
-select = ["LEG", "LEG041", "LEG042"]
-comment-matchers = ['(^|[^[:alnum:]_])(ENG|OPS)-[0-9]+([^[:alnum:]_]|$)']
-comment-prefix-identifiers = ["HUMAN", "LEGAL"]
-comment-suffix-identifiers = ["@owned"]
-```
-
-Agents should run the policy against the files they touched and follow these ownership constraints:
-
-- Do not add source comments, matcher text, or prefix/suffix identifiers.
-- Preserve matching comments unless comment cleanup is explicitly in scope.
-- Remove an unmatched comment introduced during the session instead of granting it a marker.
-- Leave pre-existing unmatched comments unchanged when they are outside the task.
-
-Humans can use `--exit-zero` for advisory feedback while editing. Commit gates should use the same committed configuration without `--exit-zero`.
 
 <a id="no-unmatched-comments"></a>
 
