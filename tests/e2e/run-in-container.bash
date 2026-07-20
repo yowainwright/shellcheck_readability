@@ -15,7 +15,7 @@ assert_no_shellcheck() {
 }
 
 assert_version() {
-  shellcheck-readability --version >/dev/null
+  [[ "$(shellcheck-readability --version)" == "0.2.0" ]] || fail "expected version 0.2.0"
 }
 
 assert_text_diagnostic() {

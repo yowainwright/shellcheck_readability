@@ -1,14 +1,27 @@
 CACHED_AUTOMATED_COMMENT_IDENTIFIERS=()
 NORMALIZED_AUTOMATED_COMMENT_IDENTIFIERS=()
 AUTOMATED_COMMENT_IDENTIFIER=""
+COMMENT_RULE_STATE_READY="0"
+COMMENT_RULES_ENABLED="0"
+NO_UNMATCHED_COMMENTS_ENABLED="0"
+NO_AUTOMATED_COMMENT_ATTRIBUTION_ENABLED="0"
 HEREDOC_DELIMITERS=()
 HEREDOC_TAB_STRIPPING=()
 PARSED_HEREDOC_OPERATOR_INDEX="0"
 PARSED_HEREDOC_DELIMITER=""
 PARSED_HEREDOC_TAB_STRIPPING="0"
+SHELL_COMMENT_FOUND="0"
+SHELL_COMMENT_INDEX="0"
+SHELL_IN_SINGLE_QUOTE="0"
+SHELL_IN_DOUBLE_QUOTE="0"
+SHELL_PARENT_SINGLE_QUOTES=()
+SHELL_PARENT_DOUBLE_QUOTES=()
+SHELL_COMMAND_PAREN_DEPTHS=()
+SHELL_SCAN_ESCAPED="0"
 
 lint_files() {
   local file
+  prepare_comment_rule_state
   for file in "${FILES[@]}"; do
     lint_file "$file"
   done
@@ -24,21 +37,40 @@ lint_file() {
 reset_scan_state() {
   SCAN_PATH="${1:-}"
   SCAN_LINE_NUMBER="0"
+  reset_structure_scan_state
+  reset_function_scan_state
+  reset_comment_syntax_state
+}
+
+reset_structure_scan_state() {
   CONTROL_FLOW_DEPTH="0"
   LOOP_DEPTH="0"
   IF_DEPTH="0"
+  IF_THEN_EXIT=()
+  IF_COMPARE_NAME=()
+  IF_COMPARE_COUNT=()
+  IF_COMPARE_REPORTED=()
+}
+
+reset_function_scan_state() {
   IN_FUNCTION="0"
   FUNCTION_START_LINE="0"
   PENDING_FUNCTION_DECLARATION="0"
   PENDING_FUNCTION_START_LINE="0"
   PREFER_FUNCTIONS_REPORTED="0"
   FUNCTION_NAMES=()
-  IF_THEN_EXIT=()
-  IF_COMPARE_NAME=()
-  IF_COMPARE_COUNT=()
-  IF_COMPARE_REPORTED=()
+}
+
+reset_comment_syntax_state() {
   HEREDOC_DELIMITERS=()
   HEREDOC_TAB_STRIPPING=()
+  SHELL_COMMENT_FOUND="0"
+  SHELL_COMMENT_INDEX="0"
+  SHELL_IN_SINGLE_QUOTE="0"
+  SHELL_IN_DOUBLE_QUOTE="0"
+  SHELL_PARENT_SINGLE_QUOTES=()
+  SHELL_PARENT_DOUBLE_QUOTES=()
+  SHELL_COMMAND_PAREN_DEPTHS=()
 }
 
 check_file_rules() {
@@ -65,19 +97,60 @@ scan_line() {
   local raw_line="${3:-}"
   local line
   CURRENT_LINE_TEXT="$raw_line"
-  heredoc_payload_line "$raw_line" && return
-  check_no_automated_comment_attribution "$path" "$line_number" "$raw_line"
-  check_no_unmatched_comments "$path" "$line_number" "$raw_line"
+  comment_policy_consumes_line "$path" "$line_number" "$raw_line" && return
   line="$(normalized_code_line "$raw_line")"
   [[ -z "$line" ]] && return
   run_line_checks "$path" "$line_number" "$line"
-  remember_heredoc_openers "$raw_line"
 }
 
 normalized_code_line() {
   local line="${1:-}"
   line="$(strip_comment "$line")"
   trim "$line"
+}
+
+invalidate_comment_rule_state() {
+  COMMENT_RULE_STATE_READY="0"
+}
+
+prepare_comment_rule_state() {
+  COMMENT_RULES_ENABLED="0"
+  NO_UNMATCHED_COMMENTS_ENABLED="0"
+  NO_AUTOMATED_COMMENT_ATTRIBUTION_ENABLED="0"
+  rule_enabled "LEG041" && NO_UNMATCHED_COMMENTS_ENABLED="1"
+  rule_enabled "LEG042" && NO_AUTOMATED_COMMENT_ATTRIBUTION_ENABLED="1"
+  [[ "$NO_UNMATCHED_COMMENTS_ENABLED$NO_AUTOMATED_COMMENT_ATTRIBUTION_ENABLED" != "00" ]] && COMMENT_RULES_ENABLED="1"
+  COMMENT_RULE_STATE_READY="1"
+}
+
+ensure_comment_rule_state() {
+  [[ "$COMMENT_RULE_STATE_READY" == "1" ]] && return
+  prepare_comment_rule_state
+}
+
+comment_policy_consumes_line() {
+  local path="${1:-}"
+  local line_number="${2:-}"
+  local line="${3:-}"
+  ensure_comment_rule_state
+  [[ "$COMMENT_RULES_ENABLED" == "1" ]] || return 1
+  heredoc_payload_line "$line" && return 0
+  scan_shell_comment_line "$line"
+  run_scanned_comment_checks "$path" "$line_number" "$line"
+  return 1
+}
+
+run_scanned_comment_checks() {
+  local path="${1:-}"
+  local line_number="${2:-}"
+  local line="${3:-}"
+  local index body
+  [[ "$SHELL_COMMENT_FOUND" == "1" ]] || return
+  index="$SHELL_COMMENT_INDEX"
+  body="${line:$((index + 1))}"
+  shell_comment_ignored "$index" "$body" && return
+  [[ "$NO_AUTOMATED_COMMENT_ATTRIBUTION_ENABLED" == "1" ]] && check_automated_comment_body "$path" "$line_number" "$index" "$body"
+  [[ "$NO_UNMATCHED_COMMENTS_ENABLED" == "1" ]] && check_unmatched_comment_body "$path" "$line_number" "$index" "$body"
 }
 
 heredoc_payload_line() {
@@ -103,53 +176,105 @@ close_heredoc() {
   HEREDOC_TAB_STRIPPING=("${HEREDOC_TAB_STRIPPING[@]:1}")
 }
 
-remember_heredoc_openers() {
+scan_shell_comment_line() {
   local line="${1:-}"
-  local offset="0"
-  [[ "$line" == *"<<"* ]] || return
-  while find_heredoc_operator "$line" "$offset"; do
-    parse_heredoc_opener "$line" && queue_parsed_heredoc
-    offset=$((PARSED_HEREDOC_OPERATOR_INDEX + 2))
+  local index char
+  SHELL_COMMENT_FOUND="0"
+  SHELL_COMMENT_INDEX="0"
+  SHELL_SCAN_ESCAPED="0"
+  for ((index = 0; index < ${#line}; index++)); do
+    char="${line:index:1}"
+    shell_scan_consumes_escaped && continue
+    shell_scan_starts_escape "$char" && continue
+    shell_command_substitution_opens "$line" "$index" && index=$((index + 1)) && continue
+    shell_scan_toggles_quote "$char" && continue
+    shell_command_parenthesis_consumed "$char" && continue
+    queue_heredoc_at "$line" "$index"
+    shell_comment_starts_at "$line" "$index" "$char" "$SHELL_IN_SINGLE_QUOTE" "$SHELL_IN_DOUBLE_QUOTE" || continue
+    SHELL_COMMENT_FOUND="1"
+    SHELL_COMMENT_INDEX="$index"
+    return
   done
 }
 
-find_heredoc_operator() {
+shell_scan_consumes_escaped() {
+  [[ "$SHELL_SCAN_ESCAPED" == "1" ]] || return 1
+  SHELL_SCAN_ESCAPED="0"
+}
+
+shell_scan_starts_escape() {
+  local char="${1:-}"
+  comment_escape_starts "$char" "$SHELL_IN_SINGLE_QUOTE" || return 1
+  SHELL_SCAN_ESCAPED="1"
+}
+
+shell_command_substitution_opens() {
   local line="${1:-}"
-  local start="${2:-0}"
-  local index char in_single="0" in_double="0" escaped="0"
-  for ((index = 0; index < ${#line}; index++)); do
-    char="${line:index:1}"
-    [[ "$escaped" == "1" ]] && escaped="0" && continue
-    comment_escape_starts "$char" "$in_single" && escaped="1" && continue
-    single_quote_opens "$char" "$in_double" && in_single=$((1 - in_single)) && continue
-    double_quote_opens "$char" "$in_single" && in_double=$((1 - in_double)) && continue
-    heredoc_comment_starts "$line" "$index" "$char" "$in_single" "$in_double" && return 1
-    heredoc_operator_at "$line" "$index" "$start" "$in_single" "$in_double" || continue
-    PARSED_HEREDOC_OPERATOR_INDEX="$index"
-    return 0
-  done
+  local index="${2:-0}"
+  [[ "${line:index:2}" == '$(' ]] || return 1
+  [[ "$SHELL_IN_SINGLE_QUOTE" == "0" ]] || return 1
+  SHELL_PARENT_SINGLE_QUOTES+=("$SHELL_IN_SINGLE_QUOTE")
+  SHELL_PARENT_DOUBLE_QUOTES+=("$SHELL_IN_DOUBLE_QUOTE")
+  SHELL_COMMAND_PAREN_DEPTHS+=("1")
+  SHELL_IN_SINGLE_QUOTE="0"
+  SHELL_IN_DOUBLE_QUOTE="0"
+}
+
+shell_scan_toggles_quote() {
+  local char="${1:-}"
+  single_quote_opens "$char" "$SHELL_IN_DOUBLE_QUOTE" && SHELL_IN_SINGLE_QUOTE=$((1 - SHELL_IN_SINGLE_QUOTE)) && return 0
+  double_quote_opens "$char" "$SHELL_IN_SINGLE_QUOTE" && SHELL_IN_DOUBLE_QUOTE=$((1 - SHELL_IN_DOUBLE_QUOTE)) && return 0
   return 1
 }
 
-heredoc_comment_starts() {
-  local line="${1:-}"
-  local index="${2:-0}"
-  local char="${3:-}"
-  local in_single="${4:-0}"
-  local in_double="${5:-0}"
-  [[ "$char" == "#" ]] || return 1
-  [[ "$in_single$in_double" == "00" ]] || return 1
-  comment_start_allowed "$line" "$index"
+shell_command_parenthesis_consumed() {
+  local char="${1:-}"
+  local last
+  [[ "$SHELL_IN_SINGLE_QUOTE$SHELL_IN_DOUBLE_QUOTE" == "00" ]] || return 1
+  last=$((${#SHELL_COMMAND_PAREN_DEPTHS[@]} - 1))
+  (( last >= 0 )) || return 1
+  [[ "$char" == "(" ]] && increment_shell_command_parenthesis "$last" && return 0
+  [[ "$char" == ")" ]] || return 1
+  close_shell_command_parenthesis "$last"
 }
 
-heredoc_operator_at() {
+increment_shell_command_parenthesis() {
+  local last="${1:-0}"
+  SHELL_COMMAND_PAREN_DEPTHS[$last]=$((SHELL_COMMAND_PAREN_DEPTHS[$last] + 1))
+}
+
+close_shell_command_parenthesis() {
+  local last="${1:-0}"
+  local depth
+  depth=$((SHELL_COMMAND_PAREN_DEPTHS[$last] - 1))
+  shell_command_parenthesis_remains "$last" "$depth" && return
+  SHELL_IN_SINGLE_QUOTE="${SHELL_PARENT_SINGLE_QUOTES[$last]}"
+  SHELL_IN_DOUBLE_QUOTE="${SHELL_PARENT_DOUBLE_QUOTES[$last]}"
+  SHELL_COMMAND_PAREN_DEPTHS=("${SHELL_COMMAND_PAREN_DEPTHS[@]:0:last}")
+  SHELL_PARENT_SINGLE_QUOTES=("${SHELL_PARENT_SINGLE_QUOTES[@]:0:last}")
+  SHELL_PARENT_DOUBLE_QUOTES=("${SHELL_PARENT_DOUBLE_QUOTES[@]:0:last}")
+}
+
+shell_command_parenthesis_remains() {
+  local last="${1:-0}"
+  local depth="${2:-0}"
+  (( depth > 0 )) || return 1
+  SHELL_COMMAND_PAREN_DEPTHS[$last]="$depth"
+}
+
+queue_heredoc_at() {
   local line="${1:-}"
   local index="${2:-0}"
-  local start="${3:-0}"
-  local in_single="${4:-0}"
-  local in_double="${5:-0}"
-  (( index >= start )) || return 1
-  [[ "$in_single$in_double" == "00" ]] || return 1
+  shell_heredoc_operator_at "$line" "$index" || return 1
+  PARSED_HEREDOC_OPERATOR_INDEX="$index"
+  parse_heredoc_opener "$line" || return 1
+  queue_parsed_heredoc
+}
+
+shell_heredoc_operator_at() {
+  local line="${1:-}"
+  local index="${2:-0}"
+  [[ "$SHELL_IN_SINGLE_QUOTE$SHELL_IN_DOUBLE_QUOTE" == "00" ]] || return 1
   [[ "${line:index:2}" == "<<" ]] || return 1
   [[ "${line:index:3}" != "<<<" ]] || return 1
   (( index == 0 )) || [[ "${line:$((index - 1)):1}" != "<" ]] || return 1
@@ -177,8 +302,38 @@ parse_heredoc_opener() {
   tail="${tail#"${tail%%[![:space:]]*}"}"
   [[ "$tail" =~ $pattern ]] || return 1
   token="${BASH_REMATCH[1]}"
-  PARSED_HEREDOC_DELIMITER="$(clean_scalar "$token")"
+  PARSED_HEREDOC_DELIMITER="$(clean_heredoc_delimiter "$token")"
   [[ -n "$PARSED_HEREDOC_DELIMITER" ]]
+}
+
+clean_heredoc_delimiter() {
+  local token="${1:-}"
+  local index char result="" in_single="0" in_double="0" escaped="0"
+  for ((index = 0; index < ${#token}; index++)); do
+    char="${token:index:1}"
+    [[ "$escaped" == "1" ]] && result+="$char" && escaped="0" && continue
+    heredoc_delimiter_escape_starts "$token" "$index" "$in_single" "$in_double" && escaped="1" && continue
+    single_quote_opens "$char" "$in_double" && in_single=$((1 - in_single)) && continue
+    double_quote_opens "$char" "$in_single" && in_double=$((1 - in_double)) && continue
+    result+="$char"
+  done
+  printf '%s\n' "$result"
+}
+
+heredoc_delimiter_escape_starts() {
+  local token="${1:-}"
+  local index="${2:-0}"
+  local in_single="${3:-0}"
+  local in_double="${4:-0}"
+  local next
+  [[ "${token:index:1}" == "\\" ]] || return 1
+  [[ "$in_single" == "0" ]] || return 1
+  [[ "$in_double" == "0" ]] && return 0
+  next="${token:$((index + 1)):1}"
+  case "$next" in
+    '$'|'`'|'"'|"\\") return 0 ;;
+  esac
+  return 1
 }
 
 queue_parsed_heredoc() {
@@ -724,6 +879,14 @@ check_no_unmatched_comments() {
   index="$(shell_comment_index "$line")" || return
   body="${line:$((index + 1))}"
   shell_comment_ignored "$index" "$body" && return
+  check_unmatched_comment_body "$path" "$line_number" "$index" "$body"
+}
+
+check_unmatched_comment_body() {
+  local path="${1:-}"
+  local line_number="${2:-}"
+  local index="${3:-0}"
+  local body="${4:-}"
   comment_allowed "$body" && return
   report_no_unmatched_comment "$path" "$line_number" "$index"
 }
@@ -747,12 +910,21 @@ check_no_automated_comment_attribution() {
   index="$(shell_comment_index "$line")" || return
   body="${line:$((index + 1))}"
   shell_comment_ignored "$index" "$body" && return
+  check_automated_comment_body "$path" "$line_number" "$index" "$body"
+}
+
+check_automated_comment_body() {
+  local path="${1:-}"
+  local line_number="${2:-}"
+  local index="${3:-0}"
+  local body="${4:-}"
+  local normalized_body normalized_author
   prepare_automated_comment_identifiers
   (( ${#NORMALIZED_AUTOMATED_COMMENT_IDENTIFIERS[@]} > 0 )) || return
   normalized_body="$(normalize_attribution_text "$body")"
   normalized_author=""
   [[ "${body,,}" == *"@author"* ]] && normalized_author="$(normalized_comment_author "$body")"
-  automated_comment_identifier "$normalized_body" "$normalized_author" || return
+  automated_comment_identifier "$body" "$normalized_body" "$normalized_author" || return
   report_automated_comment_attribution "$path" "$line_number" "$index" "$AUTOMATED_COMMENT_IDENTIFIER"
 }
 
@@ -768,13 +940,14 @@ report_automated_comment_attribution() {
 }
 
 automated_comment_identifier() {
-  local normalized_body="${1:-}"
-  local normalized_author="${2:-}"
+  local body="${1:-}"
+  local normalized_body="${2:-}"
+  local normalized_author="${3:-}"
   local index normalized_identifier
   AUTOMATED_COMMENT_IDENTIFIER=""
   for index in "${!NORMALIZED_AUTOMATED_COMMENT_IDENTIFIERS[@]}"; do
     normalized_identifier="${NORMALIZED_AUTOMATED_COMMENT_IDENTIFIERS[$index]}"
-    comment_attributes_to "$normalized_body" "$normalized_author" "$normalized_identifier" || continue
+    comment_attributes_to "$body" "$normalized_body" "$normalized_author" "$normalized_identifier" "${AUTOMATED_COMMENT_IDENTIFIERS[$index]}" || continue
     AUTOMATED_COMMENT_IDENTIFIER="${AUTOMATED_COMMENT_IDENTIFIERS[$index]}"
     return 0
   done
@@ -801,12 +974,14 @@ automated_comment_identifier_cache_current() {
 }
 
 comment_attributes_to() {
-  local normalized_body="${1:-}"
-  local normalized_author="${2:-}"
-  local normalized_identifier="${3:-}"
+  local body="${1:-}"
+  local normalized_body="${2:-}"
+  local normalized_author="${3:-}"
+  local normalized_identifier="${4:-}"
+  local identifier="${5:-}"
   [[ -n "$normalized_identifier" ]] || return 1
   comment_author_matches "$normalized_author" "$normalized_identifier" && return 0
-  comment_has_generation_signature "$normalized_body" "$normalized_identifier"
+  comment_has_generation_signature "$body" "$normalized_body" "$normalized_identifier" "$identifier"
 }
 
 comment_author_matches() {
@@ -826,19 +1001,23 @@ normalized_comment_author() {
 
 comment_has_generation_signature() {
   local body="${1:-}"
-  local identifier="${2:-}"
+  local normalized_body="${2:-}"
+  local normalized_identifier="${3:-}"
+  local identifier="${4:-}"
   local verb
   for verb in authored created generated produced written; do
-    generation_signature_present "$body" "$identifier" "$verb" && return 0
+    generation_signature_present "$body" "$normalized_body" "$normalized_identifier" "$identifier" "$verb" && return 0
   done
   return 1
 }
 
 generation_signature_present() {
   local body="${1:-}"
-  local identifier="${2:-}"
-  local verb="${3:-}"
-  phrase_present "$body" "$identifier $verb" && return 0
+  local normalized_body="${2:-}"
+  local normalized_identifier="${3:-}"
+  local identifier="${4:-}"
+  local verb="${5:-}"
+  phrase_present "$normalized_body" "$normalized_identifier $verb" && return 0
   passive_generation_signature "$body" "$identifier" "$verb"
 }
 
@@ -846,12 +1025,36 @@ passive_generation_signature() {
   local body="${1:-}"
   local identifier="${2:-}"
   local verb="${3:-}"
-  local prefix
-  trailing_phrase_present "$body" "$identifier" || return 1
-  prefix="$(trim "${body%"$identifier"}")"
-  trailing_phrase_present "$prefix" "$verb by" && return 0
-  trailing_phrase_present "$prefix" "$verb by a" && return 0
-  trailing_phrase_present "$prefix" "$verb by an"
+  body="${body,,}"
+  identifier="${identifier,,}"
+  passive_attribution_phrase_present "$body" "$verb by $identifier" && return 0
+  passive_attribution_phrase_present "$body" "$verb by a $identifier" && return 0
+  passive_attribution_phrase_present "$body" "$verb by an $identifier"
+}
+
+passive_attribution_phrase_present() {
+  local body="${1:-}"
+  local phrase="${2:-}"
+  local prefix suffix
+  while [[ "$body" == *"$phrase"* ]]; do
+    prefix="${body%%"$phrase"*}"
+    suffix="${body#*"$phrase"}"
+    attribution_phrase_boundaries "$prefix" "$suffix" && return 0
+    body="$suffix"
+  done
+  return 1
+}
+
+attribution_phrase_boundaries() {
+  local prefix="${1:-}"
+  local suffix first last terminators
+  suffix="$(trim "${2:-}")"
+  last="${prefix:$((${#prefix} - 1)):1}"
+  [[ -z "$prefix" || ! "$last" =~ [[:alnum:]_] ]] || return 1
+  first="${suffix:0:1}"
+  [[ -z "$first" ]] && return 0
+  terminators=".,;:!?)]}"
+  [[ "$terminators" == *"$first"* ]]
 }
 
 normalize_attribution_text() {
@@ -868,12 +1071,6 @@ phrase_present() {
   local value="${1:-}"
   local phrase="${2:-}"
   [[ " $value " == *" $phrase "* ]]
-}
-
-trailing_phrase_present() {
-  local value="${1:-}"
-  local phrase="${2:-}"
-  [[ " $value" == *" $phrase" ]]
 }
 
 function_scoped_line() {
@@ -1118,10 +1315,19 @@ shell_comment_at() {
   local char="${3:-}"
   local in_single="${4:-0}"
   local in_double="${5:-0}"
+  shell_comment_starts_at "$line" "$index" "$char" "$in_single" "$in_double" || return 1
+  printf '%s\n' "$index"
+}
+
+shell_comment_starts_at() {
+  local line="${1:-}"
+  local index="${2:-0}"
+  local char="${3:-}"
+  local in_single="${4:-0}"
+  local in_double="${5:-0}"
   [[ "$char" == "#" ]] || return 1
   [[ "$in_single$in_double" == "00" ]] || return 1
-  comment_start_allowed "$line" "$index" || return 1
-  printf '%s\n' "$index"
+  comment_start_allowed "$line" "$index"
 }
 
 toggle_flag() {
