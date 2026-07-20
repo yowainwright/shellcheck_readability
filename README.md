@@ -1,5 +1,20 @@
 # shellcheck-readability
 
+<!-- badges derived from .github/workflows, GitHub tags, and LICENSE -->
+[![CI][ci-badge]][ci-workflow]
+[![Homebrew][homebrew-badge]][homebrew-workflow]
+[![Version][version-badge]][tags]
+[![License][license-badge]][license]
+
+[ci-badge]: /yowainwright/shellcheck_readability/actions/workflows/ci.yml/badge.svg
+[ci-workflow]: /yowainwright/shellcheck_readability/actions/workflows/ci.yml
+[homebrew-badge]: /yowainwright/shellcheck_readability/actions/workflows/homebrew.yml/badge.svg
+[homebrew-workflow]: /yowainwright/shellcheck_readability/actions/workflows/homebrew.yml
+[version-badge]: https://img.shields.io/github/v/tag/yowainwright/shellcheck_readability
+[tags]: /yowainwright/shellcheck_readability/tags
+[license-badge]: https://img.shields.io/github/license/yowainwright/shellcheck_readability
+[license]: /yowainwright/shellcheck_readability/blob/main/LICENSE
+
 Shell readability checks that sit beside ShellCheck.
 
 ShellCheck should own correctness, portability, quoting, and shell semantics. This project focuses on reviewability: control-flow depth, operator-heavy expressions, long functions, function-first script shape, defaulted function args, repeated comparisons, direct shell smoke tests, and patterns that make scripts harder to scan.
