@@ -2,3 +2,6 @@ max-function-lines: 18
 select:
   - LEG
   - LEG041
+comment-matchers:
+  - '^ticket,[0-9]+$'
+  - '^issue#[0-9]+$'

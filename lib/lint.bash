@@ -1,3 +1,12 @@
+CACHED_AUTOMATED_COMMENT_IDENTIFIERS=()
+NORMALIZED_AUTOMATED_COMMENT_IDENTIFIERS=()
+AUTOMATED_COMMENT_IDENTIFIER=""
+HEREDOC_DELIMITERS=()
+HEREDOC_TAB_STRIPPING=()
+PARSED_HEREDOC_OPERATOR_INDEX="0"
+PARSED_HEREDOC_DELIMITER=""
+PARSED_HEREDOC_TAB_STRIPPING="0"
+
 lint_files() {
   local file
   for file in "${FILES[@]}"; do
@@ -28,6 +37,8 @@ reset_scan_state() {
   IF_COMPARE_NAME=()
   IF_COMPARE_COUNT=()
   IF_COMPARE_REPORTED=()
+  HEREDOC_DELIMITERS=()
+  HEREDOC_TAB_STRIPPING=()
 }
 
 check_file_rules() {
@@ -54,17 +65,125 @@ scan_line() {
   local raw_line="${3:-}"
   local line
   CURRENT_LINE_TEXT="$raw_line"
+  heredoc_payload_line "$raw_line" && return
   check_no_automated_comment_attribution "$path" "$line_number" "$raw_line"
   check_no_unmatched_comments "$path" "$line_number" "$raw_line"
   line="$(normalized_code_line "$raw_line")"
   [[ -z "$line" ]] && return
   run_line_checks "$path" "$line_number" "$line"
+  remember_heredoc_openers "$raw_line"
 }
 
 normalized_code_line() {
   local line="${1:-}"
   line="$(strip_comment "$line")"
   trim "$line"
+}
+
+heredoc_payload_line() {
+  local line="${1:-}"
+  local delimiter
+  (( ${#HEREDOC_DELIMITERS[@]} > 0 )) || return 1
+  delimiter="${HEREDOC_DELIMITERS[0]}"
+  [[ "${HEREDOC_TAB_STRIPPING[0]}" == "1" ]] && line="$(strip_leading_tabs "$line")"
+  [[ "$line" == "$delimiter" ]] && close_heredoc
+  return 0
+}
+
+strip_leading_tabs() {
+  local value="${1:-}"
+  while [[ "$value" == $'\t'* ]]; do
+    value="${value#$'\t'}"
+  done
+  printf '%s\n' "$value"
+}
+
+close_heredoc() {
+  HEREDOC_DELIMITERS=("${HEREDOC_DELIMITERS[@]:1}")
+  HEREDOC_TAB_STRIPPING=("${HEREDOC_TAB_STRIPPING[@]:1}")
+}
+
+remember_heredoc_openers() {
+  local line="${1:-}"
+  local offset="0"
+  [[ "$line" == *"<<"* ]] || return
+  while find_heredoc_operator "$line" "$offset"; do
+    parse_heredoc_opener "$line" && queue_parsed_heredoc
+    offset=$((PARSED_HEREDOC_OPERATOR_INDEX + 2))
+  done
+}
+
+find_heredoc_operator() {
+  local line="${1:-}"
+  local start="${2:-0}"
+  local index char in_single="0" in_double="0" escaped="0"
+  for ((index = 0; index < ${#line}; index++)); do
+    char="${line:index:1}"
+    [[ "$escaped" == "1" ]] && escaped="0" && continue
+    comment_escape_starts "$char" "$in_single" && escaped="1" && continue
+    single_quote_opens "$char" "$in_double" && in_single=$((1 - in_single)) && continue
+    double_quote_opens "$char" "$in_single" && in_double=$((1 - in_double)) && continue
+    heredoc_comment_starts "$line" "$index" "$char" "$in_single" "$in_double" && return 1
+    heredoc_operator_at "$line" "$index" "$start" "$in_single" "$in_double" || continue
+    PARSED_HEREDOC_OPERATOR_INDEX="$index"
+    return 0
+  done
+  return 1
+}
+
+heredoc_comment_starts() {
+  local line="${1:-}"
+  local index="${2:-0}"
+  local char="${3:-}"
+  local in_single="${4:-0}"
+  local in_double="${5:-0}"
+  [[ "$char" == "#" ]] || return 1
+  [[ "$in_single$in_double" == "00" ]] || return 1
+  comment_start_allowed "$line" "$index"
+}
+
+heredoc_operator_at() {
+  local line="${1:-}"
+  local index="${2:-0}"
+  local start="${3:-0}"
+  local in_single="${4:-0}"
+  local in_double="${5:-0}"
+  (( index >= start )) || return 1
+  [[ "$in_single$in_double" == "00" ]] || return 1
+  [[ "${line:index:2}" == "<<" ]] || return 1
+  [[ "${line:index:3}" != "<<<" ]] || return 1
+  (( index == 0 )) || [[ "${line:$((index - 1)):1}" != "<" ]] || return 1
+  heredoc_arithmetic_context "$line" "$index" && return 1
+  return 0
+}
+
+heredoc_arithmetic_context() {
+  local line="${1:-}"
+  local index="${2:-0}"
+  local prefix tail
+  prefix="${line:0:index}"
+  tail="${prefix##*"(("}"
+  [[ "$tail" != "$prefix" ]] || return 1
+  [[ "$tail" != *"))"* ]]
+}
+
+parse_heredoc_opener() {
+  local line="${1:-}"
+  local tail token
+  local pattern='^([^[:space:];|&()<>]+)'
+  tail="${line:$((PARSED_HEREDOC_OPERATOR_INDEX + 2))}"
+  PARSED_HEREDOC_TAB_STRIPPING="0"
+  [[ "$tail" == -* ]] && PARSED_HEREDOC_TAB_STRIPPING="1" && tail="${tail#-}"
+  tail="${tail#"${tail%%[![:space:]]*}"}"
+  [[ "$tail" =~ $pattern ]] || return 1
+  token="${BASH_REMATCH[1]}"
+  PARSED_HEREDOC_DELIMITER="$(clean_scalar "$token")"
+  [[ -n "$PARSED_HEREDOC_DELIMITER" ]]
+}
+
+queue_parsed_heredoc() {
+  HEREDOC_DELIMITERS+=("$PARSED_HEREDOC_DELIMITER")
+  HEREDOC_TAB_STRIPPING+=("$PARSED_HEREDOC_TAB_STRIPPING")
 }
 
 run_line_checks() {
@@ -623,13 +742,18 @@ check_no_automated_comment_attribution() {
   local path="${1:-$SCAN_PATH}"
   local line_number="${2:-$SCAN_LINE_NUMBER}"
   local line="${3:-$CURRENT_LINE_TEXT}"
-  local index body identifier
+  local index body normalized_body normalized_author
   rule_enabled "LEG042" || return
   index="$(shell_comment_index "$line")" || return
   body="${line:$((index + 1))}"
   shell_comment_ignored "$index" "$body" && return
-  identifier="$(automated_comment_identifier "$body")" || return
-  report_automated_comment_attribution "$path" "$line_number" "$index" "$identifier"
+  prepare_automated_comment_identifiers
+  (( ${#NORMALIZED_AUTOMATED_COMMENT_IDENTIFIERS[@]} > 0 )) || return
+  normalized_body="$(normalize_attribution_text "$body")"
+  normalized_author=""
+  [[ "${body,,}" == *"@author"* ]] && normalized_author="$(normalized_comment_author "$body")"
+  automated_comment_identifier "$normalized_body" "$normalized_author" || return
+  report_automated_comment_attribution "$path" "$line_number" "$index" "$AUTOMATED_COMMENT_IDENTIFIER"
 }
 
 report_automated_comment_attribution() {
@@ -644,41 +768,60 @@ report_automated_comment_attribution() {
 }
 
 automated_comment_identifier() {
-  local body="${1:-}"
-  local identifier
-  for identifier in "${AUTOMATED_COMMENT_IDENTIFIERS[@]}"; do
-    comment_attributes_to "$body" "$identifier" || continue
-    printf '%s\n' "$identifier"
+  local normalized_body="${1:-}"
+  local normalized_author="${2:-}"
+  local index normalized_identifier
+  AUTOMATED_COMMENT_IDENTIFIER=""
+  for index in "${!NORMALIZED_AUTOMATED_COMMENT_IDENTIFIERS[@]}"; do
+    normalized_identifier="${NORMALIZED_AUTOMATED_COMMENT_IDENTIFIERS[$index]}"
+    comment_attributes_to "$normalized_body" "$normalized_author" "$normalized_identifier" || continue
+    AUTOMATED_COMMENT_IDENTIFIER="${AUTOMATED_COMMENT_IDENTIFIERS[$index]}"
     return 0
   done
   return 1
 }
 
+prepare_automated_comment_identifiers() {
+  local identifier
+  automated_comment_identifier_cache_current && return
+  CACHED_AUTOMATED_COMMENT_IDENTIFIERS=("${AUTOMATED_COMMENT_IDENTIFIERS[@]}")
+  NORMALIZED_AUTOMATED_COMMENT_IDENTIFIERS=()
+  for identifier in "${AUTOMATED_COMMENT_IDENTIFIERS[@]}"; do
+    NORMALIZED_AUTOMATED_COMMENT_IDENTIFIERS+=("$(normalize_attribution_text "$identifier")")
+  done
+}
+
+automated_comment_identifier_cache_current() {
+  local index
+  [[ "${#AUTOMATED_COMMENT_IDENTIFIERS[@]}" -eq "${#CACHED_AUTOMATED_COMMENT_IDENTIFIERS[@]}" ]] || return 1
+  [[ "${#AUTOMATED_COMMENT_IDENTIFIERS[@]}" -eq "${#NORMALIZED_AUTOMATED_COMMENT_IDENTIFIERS[@]}" ]] || return 1
+  for index in "${!AUTOMATED_COMMENT_IDENTIFIERS[@]}"; do
+    [[ "${AUTOMATED_COMMENT_IDENTIFIERS[$index]}" == "${CACHED_AUTOMATED_COMMENT_IDENTIFIERS[$index]}" ]] || return 1
+  done
+}
+
 comment_attributes_to() {
-  local body="${1:-}"
-  local identifier="${2:-}"
-  local normalized_body normalized_identifier
-  normalized_body="$(normalize_attribution_text "$body")"
-  normalized_identifier="$(normalize_attribution_text "$identifier")"
+  local normalized_body="${1:-}"
+  local normalized_author="${2:-}"
+  local normalized_identifier="${3:-}"
   [[ -n "$normalized_identifier" ]] || return 1
-  comment_author_matches "$body" "$normalized_identifier" && return 0
+  comment_author_matches "$normalized_author" "$normalized_identifier" && return 0
   comment_has_generation_signature "$normalized_body" "$normalized_identifier"
 }
 
 comment_author_matches() {
-  local body="${1:-}"
+  local author="${1:-}"
   local identifier="${2:-}"
-  local author
-  author="$(comment_author_value "$body")" || return 1
-  phrase_present "$(normalize_attribution_text "$author")" "$identifier"
+  [[ -n "$author" ]] || return 1
+  phrase_present "$author" "$identifier"
 }
 
-comment_author_value() {
+normalized_comment_author() {
   local body="${1:-}"
   local pattern='(^|[[:space:]])@author([[:space:]]|:)+(.+)$'
   body="${body,,}"
-  [[ "$body" =~ $pattern ]] || return 1
-  printf '%s\n' "${BASH_REMATCH[3]}"
+  [[ "$body" =~ $pattern ]] || return 0
+  normalize_attribution_text "${BASH_REMATCH[3]}"
 }
 
 comment_has_generation_signature() {

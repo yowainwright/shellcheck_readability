@@ -72,13 +72,43 @@ read_config_lines() {
 process_config_line() {
   local line="${1:-}"
   CONFIG_IN_SECTION="${2:-}"
-  line="$(strip_comment "$line")"
+  line="$(strip_config_comment "$line")"
   line="$(trim "$line")"
   [[ -z "$line" ]] && return
   append_pending_config_value "$line" && return
   apply_pending_config_values
   open_config_value_list "$line" && return
   process_config_content "$line"
+}
+
+strip_config_comment() {
+  local line="${1:-}"
+  local index
+  index="$(config_comment_index "$line")"
+  print_config_without_comment "$line" "$index"
+}
+
+print_config_without_comment() {
+  local line="${1:-}"
+  local index="${2:-}"
+  [[ -z "$index" ]] && printf '%s\n' "$line" && return
+  printf '%s\n' "${line:0:index}"
+}
+
+config_comment_index() {
+  local line="${1:-}"
+  local index char in_single="0" in_double="0" escaped="0"
+  for ((index = 0; index < ${#line}; index++)); do
+    char="${line:index:1}"
+    [[ "$escaped" == "1" ]] && escaped="0" && continue
+    [[ "$char" == "\\" && "$in_double" == "1" ]] && escaped="1" && continue
+    [[ "$char" == "'" && "$in_double" == "0" ]] && in_single=$((1 - in_single)) && continue
+    [[ "$char" == '"' && "$in_single" == "0" ]] && in_double=$((1 - in_double)) && continue
+    [[ "$char" == "#" && "$in_single$in_double" == "00" ]] || continue
+    printf '%s\n' "$index"
+    return 0
+  done
+  return 1
 }
 
 append_pending_config_value() {
@@ -102,16 +132,25 @@ open_config_value_list() {
 }
 
 apply_pending_config_values() {
-  local joined
+  local array_name
   [[ -n "$CONFIG_PENDING_KEY" ]] || return
-  joined="$(join_pending_config_values)"
-  apply_config_value "$CONFIG_PENDING_KEY" "[$joined]"
+  array_name="$(config_array_name "$CONFIG_PENDING_KEY")"
+  replace_config_array "$array_name" "${CONFIG_PENDING_VALUES[@]}"
   reset_pending_config_values
 }
 
-join_pending_config_values() {
-  local IFS=,
-  printf '%s\n' "${CONFIG_PENDING_VALUES[*]}"
+config_array_name() {
+  local key="${1:-}"
+  config_array_key "$key" || return 1
+  key="${key//-/_}"
+  printf '%s\n' "${key^^}"
+}
+
+replace_config_array() {
+  local array_name="${1:-}"
+  shift
+  local -n target_ref="$array_name"
+  target_ref=("$@")
 }
 
 reset_pending_config_values() {
