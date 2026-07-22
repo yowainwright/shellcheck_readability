@@ -1,1 +1,1 @@
-comment-matchers: ['^foo,(bar|baz)$', '^issue#[0-9]+$']
+comment-matchers: ['^foo,(bar|baz)$', '^issue#[0-9]+$', "^file\\.sh$"]

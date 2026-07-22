@@ -72,9 +72,10 @@ test_inline_yaml_list_values() {
   reset_test_state
   path="$ROOT_DIR/tests/fixtures/config/yaml/inline-lists.yml"
   read_config_file "$path"
-  assert_equal "2" "${#COMMENT_MATCHERS[@]}"
+  assert_equal "3" "${#COMMENT_MATCHERS[@]}"
   assert_equal '^foo,(bar|baz)$' "${COMMENT_MATCHERS[0]}"
   assert_equal '^issue#[0-9]+$' "${COMMENT_MATCHERS[1]}"
+  assert_equal '^file\.sh$' "${COMMENT_MATCHERS[2]}"
 }
 
 test_version_metadata() {

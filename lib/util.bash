@@ -3,6 +3,7 @@ LIST_ITEM=""
 LIST_IN_SINGLE_QUOTE="0"
 LIST_IN_DOUBLE_QUOTE="0"
 LIST_ESCAPED="0"
+LIST_DECODED_ESCAPE=""
 
 trim() {
   local value="${1:-}"
@@ -59,15 +60,27 @@ consume_list_character() {
 list_escaped_character() {
   local char="${1:-}"
   [[ "$LIST_ESCAPED" == "1" ]] || return 1
-  LIST_ITEM+="$char"
+  set_decoded_list_escape "$char"
+  LIST_ITEM+="$LIST_DECODED_ESCAPE"
   LIST_ESCAPED="0"
+}
+
+set_decoded_list_escape() {
+  local char="${1:-}"
+  case "$char" in
+    '"') LIST_DECODED_ESCAPE='"' ;;
+    "\\") LIST_DECODED_ESCAPE="\\" ;;
+    n) LIST_DECODED_ESCAPE=$'\n' ;;
+    r) LIST_DECODED_ESCAPE=$'\r' ;;
+    t) LIST_DECODED_ESCAPE=$'\t' ;;
+    *) LIST_DECODED_ESCAPE="\\$char" ;;
+  esac
 }
 
 list_escape_starts() {
   local char="${1:-}"
   [[ "$char" == "\\" ]] || return 1
   [[ "$LIST_IN_DOUBLE_QUOTE" == "1" ]] || return 1
-  LIST_ITEM+="$char"
   LIST_ESCAPED="1"
 }
 
