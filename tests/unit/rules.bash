@@ -61,10 +61,11 @@ test_yaml_config_list_values() {
   reset_test_state
   path="$ROOT_DIR/tests/fixtures/config/yaml/.shellcheck-readability.yml"
   read_config_file "$path"
-  assert_equal "3" "${#COMMENT_MATCHERS[@]}"
+  assert_equal "4" "${#COMMENT_MATCHERS[@]}"
   assert_equal '^ticket,[0-9]+$' "${COMMENT_MATCHERS[0]}"
   assert_equal '^issue#[0-9]+$' "${COMMENT_MATCHERS[1]}"
   assert_equal '^file\.sh$' "${COMMENT_MATCHERS[2]}"
+  assert_equal '^unicode.value$' "${COMMENT_MATCHERS[3]}"
 }
 
 test_inline_yaml_list_values() {
@@ -72,10 +73,13 @@ test_inline_yaml_list_values() {
   reset_test_state
   path="$ROOT_DIR/tests/fixtures/config/yaml/inline-lists.yml"
   read_config_file "$path"
-  assert_equal "3" "${#COMMENT_MATCHERS[@]}"
+  assert_equal "6" "${#COMMENT_MATCHERS[@]}"
   assert_equal '^foo,(bar|baz)$' "${COMMENT_MATCHERS[0]}"
   assert_equal '^issue#[0-9]+$' "${COMMENT_MATCHERS[1]}"
   assert_equal '^file\.sh$' "${COMMENT_MATCHERS[2]}"
+  assert_equal '^unicode.value$' "${COMMENT_MATCHERS[3]}"
+  assert_equal $'^back\bspace$' "${COMMENT_MATCHERS[4]}"
+  assert_equal $'^form\ffeed$' "${COMMENT_MATCHERS[5]}"
 }
 
 test_version_metadata() {
