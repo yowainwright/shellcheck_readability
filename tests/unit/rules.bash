@@ -110,11 +110,12 @@ test_function_rules() {
 }
 
 test_comment_rules() {
-  test_comment_ownership_rules
+  test_comment_matching_rules
+  test_comment_stacking_rules
   test_comment_attribution_rules
 }
 
-test_comment_ownership_rules() {
+test_comment_matching_rules() {
   test_no_unmatched_comments
   test_no_unmatched_comments_allows_prefix_identifier
   test_no_unmatched_comments_allows_suffix_identifier
@@ -126,6 +127,16 @@ test_comment_ownership_rules() {
   test_comment_rules_are_opt_in
   test_comment_rule_names_select_explicitly
   test_comment_rules_cache_disabled_state
+}
+
+test_comment_stacking_rules() {
+  test_no_stacked_comments
+  test_no_stacked_comments_rule_function
+  test_no_stacked_comments_reports_each_addition
+  test_no_stacked_comments_allows_separation
+  test_no_stacked_comments_ignores_directives
+  test_no_stacked_comments_ignores_non_comments
+  test_no_stacked_comments_selects_by_name
 }
 
 test_comment_attribution_rules() {
@@ -339,24 +350,24 @@ test_no_unmatched_comments() {
 test_no_unmatched_comments_allows_prefix_identifier() {
   reset_test_state
   SELECT=("LEG041")
-  COMMENT_PREFIX_IDENTIFIERS+=("HUMAN")
-  check_no_unmatched_comments "example.sh" "4" "# HUMAN: legacy API order"
+  COMMENT_PREFIX_IDENTIFIERS+=("KEEP")
+  check_no_unmatched_comments "example.sh" "4" "# KEEP: legacy API order"
   assert_no_diagnostics
 }
 
 test_no_unmatched_comments_allows_suffix_identifier() {
   reset_test_state
   SELECT=("LEG041")
-  COMMENT_SUFFIX_IDENTIFIERS+=("@owned")
-  check_no_unmatched_comments "example.sh" "4" 'deploy "$target" # preserve order @owned'
+  COMMENT_SUFFIX_IDENTIFIERS+=("@keep")
+  check_no_unmatched_comments "example.sh" "4" 'deploy "$target" # preserve order @keep'
   assert_no_diagnostics
 }
 
 test_no_unmatched_comments_allows_exact_suffix_identifier() {
   reset_test_state
   SELECT=("LEG041")
-  COMMENT_SUFFIX_IDENTIFIERS+=("@owned")
-  check_no_unmatched_comments "example.sh" "4" "# @owned"
+  COMMENT_SUFFIX_IDENTIFIERS+=("@keep")
+  check_no_unmatched_comments "example.sh" "4" "# @keep"
   assert_no_diagnostics
 }
 
@@ -371,9 +382,9 @@ test_no_unmatched_comments_allows_matcher() {
 test_no_unmatched_comments_rejects_partial_identifiers() {
   reset_test_state
   SELECT=("LEG041")
-  COMMENT_PREFIX_IDENTIFIERS+=("HUMAN")
-  COMMENT_SUFFIX_IDENTIFIERS+=("@owned")
-  check_no_unmatched_comments "example.sh" "4" "# HUMANIZED generated not@owned"
+  COMMENT_PREFIX_IDENTIFIERS+=("KEEP")
+  COMMENT_SUFFIX_IDENTIFIERS+=("@keep")
+  check_no_unmatched_comments "example.sh" "4" "# KEEPING generated not@keep"
   assert_has_code "LEG041"
 }
 
@@ -393,6 +404,72 @@ test_no_unmatched_comments_skips_quoted_hashes() {
   assert_no_diagnostics
 }
 
+test_no_stacked_comments() {
+  reset_test_state
+  SELECT=("LEG043")
+  scan_line "example.sh" "1" "# First comment."
+  scan_line "example.sh" "2" "# Second comment."
+  assert_equal "1" "${#DIAG_CODES[@]}"
+  assert_has_code "LEG043"
+}
+
+test_no_stacked_comments_rule_function() {
+  reset_test_state
+  SELECT=("LEG043")
+  check_no_stacked_comments "example.sh" "1" "# First comment."
+  check_no_stacked_comments "example.sh" "2" "# Second comment."
+  assert_has_code "LEG043"
+}
+
+test_no_stacked_comments_reports_each_addition() {
+  reset_test_state
+  SELECT=("LEG043")
+  scan_line "example.sh" "1" "# First comment."
+  scan_line "example.sh" "2" "# Second comment."
+  scan_line "example.sh" "3" "# Third comment."
+  assert_equal "2" "${#DIAG_CODES[@]}"
+}
+
+test_no_stacked_comments_allows_separation() {
+  reset_test_state
+  SELECT=("LEG043")
+  scan_line "example.sh" "1" "# First comment."
+  scan_line "example.sh" "3" "# Second comment."
+  scan_line "example.sh" "4" "printf '%s\n' value"
+  scan_line "example.sh" "5" "# Third comment."
+  assert_no_diagnostics
+}
+
+test_no_stacked_comments_ignores_directives() {
+  reset_test_state
+  SELECT=("LEG043")
+  scan_line "example.sh" "1" "#!/usr/bin/env bash"
+  scan_line "example.sh" "2" "# shellcheck disable=SC1091"
+  scan_line "example.sh" "3" "# noqa: LEG043"
+  scan_line "example.sh" "4" "# First comment."
+  assert_no_diagnostics
+}
+
+test_no_stacked_comments_ignores_non_comments() {
+  reset_test_state
+  SELECT=("LEG043")
+  scan_line "example.sh" "1" "printf '%s\n' '# Quoted.'"
+  scan_line "example.sh" "2" "# First comment."
+  scan_line "example.sh" "3" "cat <<'EOF'"
+  scan_line "example.sh" "4" "# Heredoc payload."
+  scan_line "example.sh" "5" "EOF"
+  scan_line "example.sh" "6" "# Second comment."
+  assert_no_diagnostics
+}
+
+test_no_stacked_comments_selects_by_name() {
+  reset_test_state
+  SELECT=("no-stacked-comments")
+  scan_line "example.sh" "1" "# First comment."
+  scan_line "example.sh" "2" "# Second comment."
+  assert_has_code "LEG043"
+}
+
 test_comment_rules_are_opt_in() {
   local identifier signature selector
   identifier="code""x"
@@ -402,6 +479,8 @@ test_comment_rules_are_opt_in() {
     SELECT=("$selector")
     check_no_unmatched_comments "example.sh" "4" "# explain this branch"
     check_no_automated_comment_attribution "example.sh" "5" "$signature"
+    scan_line "example.sh" "6" "# First comment."
+    scan_line "example.sh" "7" "# Second comment."
     assert_no_diagnostics
   done
 }
@@ -419,6 +498,7 @@ test_comment_rules_cache_disabled_state() {
   assert_equal "0" "$COMMENT_RULES_ENABLED"
   assert_equal "0" "$NO_UNMATCHED_COMMENTS_ENABLED"
   assert_equal "0" "$NO_AUTOMATED_COMMENT_ATTRIBUTION_ENABLED"
+  assert_equal "0" "$NO_STACKED_COMMENTS_ENABLED"
 }
 
 test_no_automated_comment_attribution() {

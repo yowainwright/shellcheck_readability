@@ -27,6 +27,7 @@ shell_rule_name() {
     LEG040) printf '%s\n' "use-defaults-in-functions" ;;
     LEG041) printf '%s\n' "no-unmatched-comments" ;;
     LEG042) printf '%s\n' "no-automated-comment-attribution" ;;
+    LEG043) printf '%s\n' "no-stacked-comments" ;;
   esac
 }
 
@@ -46,7 +47,7 @@ comment_rule_selected() {
 
 comment_rule_code() {
   case "${1:-}" in
-    LEG041|LEG042) return 0 ;;
+    LEG041|LEG042|LEG043) return 0 ;;
   esac
   return 1
 }

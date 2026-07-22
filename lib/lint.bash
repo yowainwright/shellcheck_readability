@@ -5,8 +5,10 @@ COMMENT_RULE_STATE_READY="0"
 COMMENT_RULES_ENABLED="0"
 NO_UNMATCHED_COMMENTS_ENABLED="0"
 NO_AUTOMATED_COMMENT_ATTRIBUTION_ENABLED="0"
+NO_STACKED_COMMENTS_ENABLED="0"
 COMMENT_PARSER_IN_SINGLE_QUOTE="0"
 COMMENT_PARSER_IN_ANSI_C_QUOTE="0"
+LAST_COMMENT_LINE="0"
 HEREDOC_DELIMITERS=()
 HEREDOC_TAB_STRIPPING=()
 PENDING_HEREDOC_DELIMITERS=()
@@ -84,6 +86,7 @@ reset_comment_syntax_state() {
   SHELL_COMMAND_PAREN_DEPTHS=()
   SHELL_CONTEXT_TYPES=()
   SHELL_CASE_STATES=()
+  LAST_COMMENT_LINE="0"
 }
 
 check_file_rules() {
@@ -130,9 +133,11 @@ prepare_comment_rule_state() {
   COMMENT_RULES_ENABLED="0"
   NO_UNMATCHED_COMMENTS_ENABLED="0"
   NO_AUTOMATED_COMMENT_ATTRIBUTION_ENABLED="0"
+  NO_STACKED_COMMENTS_ENABLED="0"
   rule_enabled "LEG041" && NO_UNMATCHED_COMMENTS_ENABLED="1"
   rule_enabled "LEG042" && NO_AUTOMATED_COMMENT_ATTRIBUTION_ENABLED="1"
-  [[ "$NO_UNMATCHED_COMMENTS_ENABLED$NO_AUTOMATED_COMMENT_ATTRIBUTION_ENABLED" != "00" ]] && COMMENT_RULES_ENABLED="1"
+  rule_enabled "LEG043" && NO_STACKED_COMMENTS_ENABLED="1"
+  [[ "$NO_UNMATCHED_COMMENTS_ENABLED$NO_AUTOMATED_COMMENT_ATTRIBUTION_ENABLED$NO_STACKED_COMMENTS_ENABLED" != "000" ]] && COMMENT_RULES_ENABLED="1"
   COMMENT_RULE_STATE_READY="1"
 }
 
@@ -163,6 +168,7 @@ run_scanned_comment_checks() {
   index="$SHELL_COMMENT_INDEX"
   body="${line:$((index + 1))}"
   shell_comment_ignored "$index" "$body" && return
+  [[ "$NO_STACKED_COMMENTS_ENABLED" == "1" ]] && check_stacked_comment_line "$path" "$line_number" "$index"
   [[ "$NO_AUTOMATED_COMMENT_ATTRIBUTION_ENABLED" == "1" ]] && check_automated_comment_body "$path" "$line_number" "$index" "$body"
   [[ "$NO_UNMATCHED_COMMENTS_ENABLED" == "1" ]] && check_unmatched_comment_body "$path" "$line_number" "$index" "$body"
 }
@@ -1081,7 +1087,7 @@ report_no_unmatched_comment() {
   local index="${3:-0}"
   local column message
   column=$((index + 1))
-  message="Comment does not match a configured ownership matcher, prefix, or suffix."
+  message="Comment does not match a configured matcher, prefix identifier, or suffix identifier."
   add_diag "$path" "$line_number" "$column" "LEG041" "$message"
 }
 
@@ -1121,6 +1127,42 @@ report_automated_comment_attribution() {
   column=$((index + 1))
   message="Comment contains the prohibited attribution \"$identifier\"."
   add_diag "$path" "$line_number" "$column" "LEG042" "$message"
+}
+
+check_no_stacked_comments() {
+  local path="${1:-$SCAN_PATH}"
+  local line_number="${2:-$SCAN_LINE_NUMBER}"
+  local line="${3:-$CURRENT_LINE_TEXT}"
+  local index body
+  rule_enabled "LEG043" || return
+  index="$(shell_comment_index "$line")" || return
+  body="${line:$((index + 1))}"
+  shell_comment_ignored "$index" "$body" && return
+  check_stacked_comment_line "$path" "$line_number" "$index"
+}
+
+check_stacked_comment_line() {
+  local path="${1:-}"
+  local line_number="${2:-0}"
+  local index="${3:-0}"
+  stacked_comment_follows "$line_number" && report_stacked_comment "$path" "$line_number" "$index"
+  LAST_COMMENT_LINE="$line_number"
+}
+
+stacked_comment_follows() {
+  local line_number="${1:-0}"
+  (( LAST_COMMENT_LINE > 0 )) || return 1
+  (( line_number == LAST_COMMENT_LINE + 1 ))
+}
+
+report_stacked_comment() {
+  local path="${1:-}"
+  local line_number="${2:-0}"
+  local index="${3:-0}"
+  local column message
+  column=$((index + 1))
+  message="Update or remove the adjacent comment instead of stacking another comment."
+  add_diag "$path" "$line_number" "$column" "LEG043" "$message"
 }
 
 automated_comment_identifier() {
