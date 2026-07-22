@@ -859,7 +859,7 @@ report_max_expression_operators() {
   local line_number="${2:-}"
   local count="${3:-}"
   local message
-  message="Expression has $count readability operators (max $MAX_EXPRESSION_OPERATORS). Extract named commands or values."
+  message="Expression has $count legibility operators (max $MAX_EXPRESSION_OPERATORS). Extract named commands or values."
   add_diag "$path" "$line_number" "1" "LEG001" "$message"
 }
 
@@ -879,7 +879,7 @@ report_hoist_if_operators() {
   local line_number="${2:-}"
   local count="${3:-}"
   local message
-  message="Condition has $count readability operators (max $MAX_CONDITION_OPERATORS). Hoist it into a named check."
+  message="Condition has $count legibility operators (max $MAX_CONDITION_OPERATORS). Hoist it into a named check."
   add_diag "$path" "$line_number" "1" "LEG002" "$message"
 }
 

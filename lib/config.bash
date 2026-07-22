@@ -29,11 +29,11 @@ search_config_upward() {
 
 config_in_dir() {
   local dir="${1:-}"
-  print_existing "$dir/.shellcheck-readabilityrc" && return 0
-  print_existing "$dir/.shellcheck-readability.yml" && return 0
-  print_existing "$dir/.shellcheck-readability.yaml" && return 0
-  print_existing "$dir/shellcheck-readability.toml" && return 0
-  print_existing "$dir/.shellcheck-readability.toml" && return 0
+  print_existing "$dir/.shellcheck-legibilityrc" && return 0
+  print_existing "$dir/.shellcheck-legibility.yml" && return 0
+  print_existing "$dir/.shellcheck-legibility.yaml" && return 0
+  print_existing "$dir/shellcheck-legibility.toml" && return 0
+  print_existing "$dir/.shellcheck-legibility.toml" && return 0
   print_existing "$dir/pyproject.toml"
 }
 
@@ -193,7 +193,7 @@ apply_config_content_assignment() {
 
 update_config_section() {
   CONFIG_IN_SECTION="0"
-  [[ "${1:-}" == "[tool.shellcheck-readability]" ]] && CONFIG_IN_SECTION="1"
+  [[ "${1:-}" == "[tool.shellcheck-legibility]" ]] && CONFIG_IN_SECTION="1"
 }
 
 apply_config_assignment() {

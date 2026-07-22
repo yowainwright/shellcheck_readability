@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
   - name: Security vulnerability
-    url: https://github.com/yowainwright/shellcheck_readability/security/advisories/new
+    url: https://github.com/yowainwright/shellcheck_legibility/security/advisories/new
     about: Report vulnerabilities privately through GitHub Security Advisories.

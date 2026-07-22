@@ -1,4 +1,4 @@
-# shellcheck-readability
+# shellcheck-legibility
 
 <!-- badges derived from .github/workflows, GitHub tags, and LICENSE -->
 [![CI][ci-badge]][ci-workflow]
@@ -6,16 +6,16 @@
 [![Version][version-badge]][tags]
 [![License][license-badge]][license]
 
-[ci-badge]: https://github.com/yowainwright/shellcheck_readability/actions/workflows/ci.yml/badge.svg
-[ci-workflow]: https://github.com/yowainwright/shellcheck_readability/actions/workflows/ci.yml
-[homebrew-badge]: https://github.com/yowainwright/shellcheck_readability/actions/workflows/homebrew.yml/badge.svg
-[homebrew-workflow]: https://github.com/yowainwright/shellcheck_readability/actions/workflows/homebrew.yml
-[version-badge]: https://img.shields.io/github/v/tag/yowainwright/shellcheck_readability
-[tags]: https://github.com/yowainwright/shellcheck_readability/tags
-[license-badge]: https://img.shields.io/github/license/yowainwright/shellcheck_readability
-[license]: https://github.com/yowainwright/shellcheck_readability/blob/main/LICENSE
+[ci-badge]: https://github.com/yowainwright/shellcheck_legibility/actions/workflows/ci.yml/badge.svg
+[ci-workflow]: https://github.com/yowainwright/shellcheck_legibility/actions/workflows/ci.yml
+[homebrew-badge]: https://github.com/yowainwright/shellcheck_legibility/actions/workflows/homebrew.yml/badge.svg
+[homebrew-workflow]: https://github.com/yowainwright/shellcheck_legibility/actions/workflows/homebrew.yml
+[version-badge]: https://img.shields.io/github/v/tag/yowainwright/shellcheck_legibility
+[tags]: https://github.com/yowainwright/shellcheck_legibility/tags
+[license-badge]: https://img.shields.io/github/license/yowainwright/shellcheck_legibility
+[license]: https://github.com/yowainwright/shellcheck_legibility/blob/main/LICENSE
 
-Shell readability checks that sit beside ShellCheck.
+Shell legibility checks that sit beside ShellCheck.
 
 ShellCheck should own correctness, portability, quoting, and shell semantics. This project focuses on reviewability: control-flow depth, operator-heavy expressions, long functions, function-first script shape, defaulted function args, repeated comparisons, direct shell smoke tests, and patterns that make scripts harder to scan.
 
@@ -24,8 +24,9 @@ Requires Bash 4.3 or newer. ShellCheck is a development lint dependency, not a r
 ## Install
 
 ```sh
-brew tap yowainwright/shellcheck_readability
-brew install --HEAD shellcheck-readability
+brew tap yowainwright/shellcheck_legibility https://github.com/yowainwright/shellcheck_legibility
+brew trust --formula yowainwright/shellcheck_legibility/shellcheck-legibility
+brew install --HEAD shellcheck-legibility
 ```
 
 ## Rules
@@ -264,8 +265,8 @@ Prefer smoke-testing the installed command instead of invoking entry scripts dir
 #### do / don't
 
 ```diff
-- bash bin/shellcheck-readability --version
-+ shellcheck-readability --version
+- bash bin/shellcheck-legibility --version
++ shellcheck-legibility --version
 ```
 
 ---
@@ -565,18 +566,18 @@ Use `--exit-zero` for advisory feedback. Enforcement should use the same committ
 ## Use
 
 ```sh
-bin/shellcheck-readability check scripts tests
-bin/shellcheck-readability check . --select LEG001,LEG002 --ignore LEG038
-bin/shellcheck-readability check . --output-format json
+bin/shellcheck-legibility check scripts tests
+bin/shellcheck-legibility check . --select LEG001,LEG002 --ignore LEG038
+bin/shellcheck-legibility check . --output-format json
 ```
 
 ## Configuration
 
 Configuration is loaded from the first matching file found while searching upward:
 
-- `.shellcheck-readabilityrc` with `key=value` or `key: value` assignments.
-- `.shellcheck-readability.yml` or `.shellcheck-readability.yaml` with YAML mappings and inline or block lists.
-- `shellcheck-readability.toml` or `.shellcheck-readability.toml` with TOML assignments.
+- `.shellcheck-legibilityrc` with `key=value` or `key: value` assignments.
+- `.shellcheck-legibility.yml` or `.shellcheck-legibility.yaml` with YAML mappings and inline or block lists.
+- `shellcheck-legibility.toml` or `.shellcheck-legibility.toml` with TOML assignments.
 
 ```toml
 max-expression-operators = 4
