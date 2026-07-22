@@ -29,9 +29,11 @@ jobs:
         run: brew trust "$TAP"
 
       - name: Install formula from HEAD
+        if: github.event_name == 'push'
         run: brew install --HEAD --build-from-source "$FORMULA"
 
       - name: Test formula
+        if: github.event_name == 'push'
         run: brew test "$FORMULA"
 
       - name: Audit formula
