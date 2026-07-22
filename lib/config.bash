@@ -5,6 +5,7 @@ CONFIG_PENDING_KEY=""
 CONFIG_PENDING_VALUES=()
 CONFIG_ASSIGNMENT_KEY=""
 CONFIG_ASSIGNMENT_VALUE=""
+YAML_DECODED_ESCAPE=""
 
 load_config() {
   local path
@@ -116,8 +117,46 @@ append_pending_config_value() {
   local value
   [[ -n "$CONFIG_PENDING_KEY" ]] || return 1
   [[ "$line" == "- "* ]] || return 1
-  value="$(clean_scalar "${line#- }")"
+  value="$(parse_yaml_scalar "${line#- }")"
   CONFIG_PENDING_VALUES+=("$value")
+}
+
+parse_yaml_scalar() {
+  local value="${1:-}"
+  local inner
+  value="$(trim "$value")"
+  case "$value" in
+    \"*\") inner="${value:1:$((${#value} - 2))}"; decode_yaml_double_quoted "$inner" ;;
+    \'*\') inner="${value:1:$((${#value} - 2))}"; printf '%s\n' "${inner//\'\'/\'}" ;;
+    *) printf '%s\n' "$value" ;;
+  esac
+}
+
+decode_yaml_double_quoted() {
+  local value="${1:-}"
+  local index char result="" escaped="0"
+  for ((index = 0; index < ${#value}; index++)); do
+    char="${value:index:1}"
+    [[ "$escaped" == "0" && "$char" == "\\" ]] && escaped="1" && continue
+    [[ "$escaped" == "0" ]] && result+="$char" && continue
+    set_yaml_decoded_escape "$char"
+    result+="$YAML_DECODED_ESCAPE"
+    escaped="0"
+  done
+  [[ "$escaped" == "1" ]] && result+="\\"
+  printf '%s\n' "$result"
+}
+
+set_yaml_decoded_escape() {
+  local char="${1:-}"
+  case "$char" in
+    '"') YAML_DECODED_ESCAPE='"' ;;
+    "\\") YAML_DECODED_ESCAPE="\\" ;;
+    n) YAML_DECODED_ESCAPE=$'\n' ;;
+    r) YAML_DECODED_ESCAPE=$'\r' ;;
+    t) YAML_DECODED_ESCAPE=$'\t' ;;
+    *) YAML_DECODED_ESCAPE="\\$char" ;;
+  esac
 }
 
 open_config_value_list() {

@@ -5,18 +5,26 @@ COMMENT_RULE_STATE_READY="0"
 COMMENT_RULES_ENABLED="0"
 NO_UNMATCHED_COMMENTS_ENABLED="0"
 NO_AUTOMATED_COMMENT_ATTRIBUTION_ENABLED="0"
+COMMENT_PARSER_IN_SINGLE_QUOTE="0"
+COMMENT_PARSER_IN_ANSI_C_QUOTE="0"
 HEREDOC_DELIMITERS=()
 HEREDOC_TAB_STRIPPING=()
+PENDING_HEREDOC_DELIMITERS=()
+PENDING_HEREDOC_TAB_STRIPPING=()
 PARSED_HEREDOC_OPERATOR_INDEX="0"
 PARSED_HEREDOC_DELIMITER=""
 PARSED_HEREDOC_TAB_STRIPPING="0"
+PARSED_HEREDOC_TOKEN=""
 SHELL_COMMENT_FOUND="0"
 SHELL_COMMENT_INDEX="0"
 SHELL_IN_SINGLE_QUOTE="0"
 SHELL_IN_DOUBLE_QUOTE="0"
+SHELL_IN_ANSI_C_QUOTE="0"
 SHELL_PARENT_SINGLE_QUOTES=()
 SHELL_PARENT_DOUBLE_QUOTES=()
 SHELL_COMMAND_PAREN_DEPTHS=()
+SHELL_CONTEXT_TYPES=()
+SHELL_CASE_STATES=()
 SHELL_SCAN_ESCAPED="0"
 
 lint_files() {
@@ -64,13 +72,18 @@ reset_function_scan_state() {
 reset_comment_syntax_state() {
   HEREDOC_DELIMITERS=()
   HEREDOC_TAB_STRIPPING=()
+  PENDING_HEREDOC_DELIMITERS=()
+  PENDING_HEREDOC_TAB_STRIPPING=()
   SHELL_COMMENT_FOUND="0"
   SHELL_COMMENT_INDEX="0"
   SHELL_IN_SINGLE_QUOTE="0"
   SHELL_IN_DOUBLE_QUOTE="0"
+  SHELL_IN_ANSI_C_QUOTE="0"
   SHELL_PARENT_SINGLE_QUOTES=()
   SHELL_PARENT_DOUBLE_QUOTES=()
   SHELL_COMMAND_PAREN_DEPTHS=()
+  SHELL_CONTEXT_TYPES=()
+  SHELL_CASE_STATES=()
 }
 
 check_file_rules() {
@@ -137,6 +150,7 @@ comment_policy_consumes_line() {
   heredoc_payload_line "$line" && return 0
   scan_shell_comment_line "$line"
   run_scanned_comment_checks "$path" "$line_number" "$line"
+  activate_pending_heredocs
   return 1
 }
 
@@ -179,22 +193,33 @@ close_heredoc() {
 scan_shell_comment_line() {
   local line="${1:-}"
   local index char
-  SHELL_COMMENT_FOUND="0"
-  SHELL_COMMENT_INDEX="0"
-  SHELL_SCAN_ESCAPED="0"
+  reset_shell_comment_line_state
   for ((index = 0; index < ${#line}; index++)); do
     char="${line:index:1}"
     shell_scan_consumes_escaped && continue
     shell_scan_starts_escape "$char" && continue
     shell_command_substitution_opens "$line" "$index" && index=$((index + 1)) && continue
-    shell_scan_toggles_quote "$char" && continue
+    shell_backtick_substitution_consumed "$char" && continue
+    shell_scan_toggles_quote "$line" "$index" "$char" && continue
+    update_shell_case_state "$line" "$index"
+    shell_case_arm_parenthesis_consumed "$char" && continue
     shell_command_parenthesis_consumed "$char" && continue
     queue_heredoc_at "$line" "$index"
     shell_comment_starts_at "$line" "$index" "$char" "$SHELL_IN_SINGLE_QUOTE" "$SHELL_IN_DOUBLE_QUOTE" || continue
-    SHELL_COMMENT_FOUND="1"
-    SHELL_COMMENT_INDEX="$index"
+    record_shell_comment "$index"
     return
   done
+}
+
+reset_shell_comment_line_state() {
+  SHELL_COMMENT_FOUND="0"
+  SHELL_COMMENT_INDEX="0"
+  SHELL_SCAN_ESCAPED="0"
+}
+
+record_shell_comment() {
+  SHELL_COMMENT_FOUND="1"
+  SHELL_COMMENT_INDEX="${1:-0}"
 }
 
 shell_scan_consumes_escaped() {
@@ -204,7 +229,8 @@ shell_scan_consumes_escaped() {
 
 shell_scan_starts_escape() {
   local char="${1:-}"
-  comment_escape_starts "$char" "$SHELL_IN_SINGLE_QUOTE" || return 1
+  [[ "$char" == "\\" ]] || return 1
+  [[ "$SHELL_IN_SINGLE_QUOTE" == "0" || "$SHELL_IN_ANSI_C_QUOTE" == "1" ]] || return 1
   SHELL_SCAN_ESCAPED="1"
 }
 
@@ -213,26 +239,147 @@ shell_command_substitution_opens() {
   local index="${2:-0}"
   [[ "${line:index:2}" == '$(' ]] || return 1
   [[ "$SHELL_IN_SINGLE_QUOTE" == "0" ]] || return 1
+  open_shell_context "parenthesis" "1"
+}
+
+shell_backtick_substitution_consumed() {
+  local char="${1:-}"
+  local last
+  [[ "$char" == '`' ]] || return 1
+  [[ "$SHELL_IN_SINGLE_QUOTE" == "0" ]] || return 1
+  last=$((${#SHELL_CONTEXT_TYPES[@]} - 1))
+  backtick_context_open "$last" && close_shell_context "$last" && return
+  open_shell_context "backtick" "0"
+}
+
+backtick_context_open() {
+  local last="${1:--1}"
+  (( last >= 0 )) || return 1
+  [[ "${SHELL_CONTEXT_TYPES[$last]}" == "backtick" ]]
+}
+
+open_shell_context() {
+  local type="${1:-}"
+  local depth="${2:-0}"
   SHELL_PARENT_SINGLE_QUOTES+=("$SHELL_IN_SINGLE_QUOTE")
   SHELL_PARENT_DOUBLE_QUOTES+=("$SHELL_IN_DOUBLE_QUOTE")
-  SHELL_COMMAND_PAREN_DEPTHS+=("1")
+  SHELL_COMMAND_PAREN_DEPTHS+=("$depth")
+  SHELL_CONTEXT_TYPES+=("$type")
   SHELL_IN_SINGLE_QUOTE="0"
   SHELL_IN_DOUBLE_QUOTE="0"
+  SHELL_IN_ANSI_C_QUOTE="0"
 }
 
 shell_scan_toggles_quote() {
-  local char="${1:-}"
-  single_quote_opens "$char" "$SHELL_IN_DOUBLE_QUOTE" && SHELL_IN_SINGLE_QUOTE=$((1 - SHELL_IN_SINGLE_QUOTE)) && return 0
+  local line="${1:-}"
+  local index="${2:-0}"
+  local char="${3:-}"
+  shell_single_quote_consumed "$line" "$index" "$char" && return 0
   double_quote_opens "$char" "$SHELL_IN_SINGLE_QUOTE" && SHELL_IN_DOUBLE_QUOTE=$((1 - SHELL_IN_DOUBLE_QUOTE)) && return 0
   return 1
+}
+
+shell_single_quote_consumed() {
+  local line="${1:-}"
+  local index="${2:-0}"
+  local char="${3:-}"
+  single_quote_opens "$char" "$SHELL_IN_DOUBLE_QUOTE" || return 1
+  update_shell_single_quote "$line" "$index"
+}
+
+update_shell_single_quote() {
+  local line="${1:-}"
+  local index="${2:-0}"
+  close_shell_single_quote && return
+  SHELL_IN_SINGLE_QUOTE="1"
+  ansi_c_quote_prefix_at "$line" "$index" && SHELL_IN_ANSI_C_QUOTE="1"
+}
+
+close_shell_single_quote() {
+  [[ "$SHELL_IN_SINGLE_QUOTE" == "1" ]] || return 1
+  SHELL_IN_SINGLE_QUOTE="0"
+  SHELL_IN_ANSI_C_QUOTE="0"
+}
+
+ansi_c_quote_prefix_at() {
+  local line="${1:-}"
+  local index="${2:-0}"
+  (( index > 0 )) || return 1
+  [[ "${line:$((index - 1)):1}" == '$' ]]
+}
+
+update_shell_case_state() {
+  local line="${1:-}"
+  local index="${2:-0}"
+  [[ "$SHELL_IN_SINGLE_QUOTE$SHELL_IN_DOUBLE_QUOTE" == "00" ]] || return
+  shell_keyword_at "$line" "$index" "case" && SHELL_CASE_STATES+=("awaiting-in") && return
+  shell_keyword_at "$line" "$index" "in" && open_shell_case_patterns && return
+  shell_keyword_at "$line" "$index" "esac" && close_shell_case && return
+  shell_case_terminator_at "$line" "$index" && open_next_shell_case_pattern
+}
+
+shell_keyword_at() {
+  local line="${1:-}"
+  local index="${2:-0}"
+  local keyword="${3:-}"
+  local before after
+  [[ "${line:index:${#keyword}}" == "$keyword" ]] || return 1
+  before="${line:$((index - 1)):1}"
+  after="${line:$((index + ${#keyword})):1}"
+  (( index == 0 )) || [[ ! "$before" =~ [[:alnum:]_] ]] || return 1
+  [[ -z "$after" || ! "$after" =~ [[:alnum:]_] ]]
+}
+
+open_shell_case_patterns() {
+  local last
+  last=$((${#SHELL_CASE_STATES[@]} - 1))
+  (( last >= 0 )) || return 1
+  [[ "${SHELL_CASE_STATES[$last]}" == "awaiting-in" ]] || return 1
+  SHELL_CASE_STATES[$last]="pattern"
+}
+
+close_shell_case() {
+  local last
+  last=$((${#SHELL_CASE_STATES[@]} - 1))
+  (( last >= 0 )) || return 1
+  SHELL_CASE_STATES=("${SHELL_CASE_STATES[@]:0:last}")
+}
+
+shell_case_terminator_at() {
+  local line="${1:-}"
+  local index="${2:-0}"
+  local tail="${line:index:3}"
+  case "$tail" in
+    ";;"*|";&"*) return 0 ;;
+  esac
+  return 1
+}
+
+open_next_shell_case_pattern() {
+  local last
+  last=$((${#SHELL_CASE_STATES[@]} - 1))
+  (( last >= 0 )) || return 1
+  [[ "${SHELL_CASE_STATES[$last]}" == "body" ]] || return 1
+  SHELL_CASE_STATES[$last]="pattern"
+}
+
+shell_case_arm_parenthesis_consumed() {
+  local char="${1:-}"
+  local last
+  [[ "$char" == ")" ]] || return 1
+  last=$((${#SHELL_CASE_STATES[@]} - 1))
+  (( last >= 0 )) || return 1
+  [[ "${SHELL_CASE_STATES[$last]}" == "pattern" ]] || return 1
+  SHELL_CASE_STATES[$last]="body"
 }
 
 shell_command_parenthesis_consumed() {
   local char="${1:-}"
   local last
   [[ "$SHELL_IN_SINGLE_QUOTE$SHELL_IN_DOUBLE_QUOTE" == "00" ]] || return 1
-  last=$((${#SHELL_COMMAND_PAREN_DEPTHS[@]} - 1))
+  last=$((${#SHELL_CONTEXT_TYPES[@]} - 1))
   (( last >= 0 )) || return 1
+  [[ "${SHELL_CONTEXT_TYPES[$last]}" == "parenthesis" ]] || return 1
   [[ "$char" == "(" ]] && increment_shell_command_parenthesis "$last" && return 0
   [[ "$char" == ")" ]] || return 1
   close_shell_command_parenthesis "$last"
@@ -248,11 +395,18 @@ close_shell_command_parenthesis() {
   local depth
   depth=$((SHELL_COMMAND_PAREN_DEPTHS[$last] - 1))
   shell_command_parenthesis_remains "$last" "$depth" && return
+  close_shell_context "$last"
+}
+
+close_shell_context() {
+  local last="${1:-0}"
   SHELL_IN_SINGLE_QUOTE="${SHELL_PARENT_SINGLE_QUOTES[$last]}"
   SHELL_IN_DOUBLE_QUOTE="${SHELL_PARENT_DOUBLE_QUOTES[$last]}"
+  SHELL_IN_ANSI_C_QUOTE="0"
   SHELL_COMMAND_PAREN_DEPTHS=("${SHELL_COMMAND_PAREN_DEPTHS[@]:0:last}")
   SHELL_PARENT_SINGLE_QUOTES=("${SHELL_PARENT_SINGLE_QUOTES[@]:0:last}")
   SHELL_PARENT_DOUBLE_QUOTES=("${SHELL_PARENT_DOUBLE_QUOTES[@]:0:last}")
+  SHELL_CONTEXT_TYPES=("${SHELL_CONTEXT_TYPES[@]:0:last}")
 }
 
 shell_command_parenthesis_remains() {
@@ -294,16 +448,37 @@ heredoc_arithmetic_context() {
 
 parse_heredoc_opener() {
   local line="${1:-}"
-  local tail token
-  local pattern='^([^[:space:];|&()<>]+)'
+  local tail
   tail="${line:$((PARSED_HEREDOC_OPERATOR_INDEX + 2))}"
   PARSED_HEREDOC_TAB_STRIPPING="0"
   [[ "$tail" == -* ]] && PARSED_HEREDOC_TAB_STRIPPING="1" && tail="${tail#-}"
   tail="${tail#"${tail%%[![:space:]]*}"}"
-  [[ "$tail" =~ $pattern ]] || return 1
-  token="${BASH_REMATCH[1]}"
-  PARSED_HEREDOC_DELIMITER="$(clean_heredoc_delimiter "$token")"
+  parse_heredoc_word "$tail" || return 1
+  PARSED_HEREDOC_DELIMITER="$(clean_heredoc_delimiter "$PARSED_HEREDOC_TOKEN")"
   [[ -n "$PARSED_HEREDOC_DELIMITER" ]]
+}
+
+parse_heredoc_word() {
+  local value="${1:-}"
+  local index char in_single="0" in_double="0" escaped="0"
+  PARSED_HEREDOC_TOKEN=""
+  for ((index = 0; index < ${#value}; index++)); do
+    char="${value:index:1}"
+    [[ "$escaped" == "1" ]] && PARSED_HEREDOC_TOKEN+="$char" && escaped="0" && continue
+    [[ "$char" == "\\" && "$in_single" == "0" ]] && PARSED_HEREDOC_TOKEN+="$char" && escaped="1" && continue
+    [[ "$char" == "'" && "$in_double" == "0" ]] && in_single=$((1 - in_single))
+    [[ "$char" == '"' && "$in_single" == "0" ]] && in_double=$((1 - in_double))
+    heredoc_word_separator "$char" "$in_single" "$in_double" && break
+    PARSED_HEREDOC_TOKEN+="$char"
+  done
+  [[ -n "$PARSED_HEREDOC_TOKEN" ]]
+}
+
+heredoc_word_separator() {
+  local char="${1:-}"
+  [[ "${2:-0}${3:-0}" == "00" ]] || return 1
+  [[ "$char" =~ [[:space:]] ]] && return 0
+  [[ ";|&()<>" == *"$char"* ]]
 }
 
 clean_heredoc_delimiter() {
@@ -337,8 +512,17 @@ heredoc_delimiter_escape_starts() {
 }
 
 queue_parsed_heredoc() {
-  HEREDOC_DELIMITERS+=("$PARSED_HEREDOC_DELIMITER")
-  HEREDOC_TAB_STRIPPING+=("$PARSED_HEREDOC_TAB_STRIPPING")
+  PENDING_HEREDOC_DELIMITERS+=("$PARSED_HEREDOC_DELIMITER")
+  PENDING_HEREDOC_TAB_STRIPPING+=("$PARSED_HEREDOC_TAB_STRIPPING")
+}
+
+activate_pending_heredocs() {
+  [[ "$SHELL_SCAN_ESCAPED" == "0" ]] || return
+  (( ${#PENDING_HEREDOC_DELIMITERS[@]} > 0 )) || return
+  HEREDOC_DELIMITERS+=("${PENDING_HEREDOC_DELIMITERS[@]}")
+  HEREDOC_TAB_STRIPPING+=("${PENDING_HEREDOC_TAB_STRIPPING[@]}")
+  PENDING_HEREDOC_DELIMITERS=()
+  PENDING_HEREDOC_TAB_STRIPPING=()
 }
 
 run_line_checks() {
@@ -1047,14 +1231,28 @@ passive_attribution_phrase_present() {
 
 attribution_phrase_boundaries() {
   local prefix="${1:-}"
+  local raw_suffix="${2:-}"
   local suffix first last terminators
-  suffix="$(trim "${2:-}")"
+  suffix="$(trim "$raw_suffix")"
   last="${prefix:$((${#prefix} - 1)):1}"
   [[ -z "$prefix" || ! "$last" =~ [[:alnum:]_] ]] || return 1
+  attribution_conjunction_follows "$raw_suffix" && return 0
   first="${suffix:0:1}"
   [[ -z "$first" ]] && return 0
   terminators=".,;:!?)]}"
   [[ "$terminators" == *"$first"* ]]
+}
+
+attribution_conjunction_follows() {
+  local suffix="${1:-}"
+  local word
+  [[ "$suffix" == [[:space:]]* ]] || return 1
+  read -r word _ <<< "$suffix"
+  case "$word" in
+    and|but|for|nor) return 0 ;;
+    or|so|yet) return 0 ;;
+  esac
+  return 1
 }
 
 normalize_attribution_text() {
@@ -1282,16 +1480,35 @@ positional_suffix_guarded() {
 
 shell_comment_index() {
   local line="${1:-}"
-  local index char in_single="0" in_double="0" escaped="0"
+  local index char in_double="0" escaped="0"
+  COMMENT_PARSER_IN_SINGLE_QUOTE="0"
+  COMMENT_PARSER_IN_ANSI_C_QUOTE="0"
   for ((index = 0; index < ${#line}; index++)); do
     char="${line:index:1}"
     [[ "$escaped" == "1" ]] && escaped="0" && continue
-    comment_escape_starts "$char" "$in_single" && escaped="1" && continue
-    single_quote_opens "$char" "$in_double" && in_single="$(toggle_flag "$in_single")" && continue
-    double_quote_opens "$char" "$in_single" && in_double="$(toggle_flag "$in_double")" && continue
-    shell_comment_at "$line" "$index" "$char" "$in_single" "$in_double" && return
+    comment_parser_escape_starts "$char" "$COMMENT_PARSER_IN_SINGLE_QUOTE" "$COMMENT_PARSER_IN_ANSI_C_QUOTE" && escaped="1" && continue
+    comment_parser_single_quote_consumed "$line" "$index" "$char" "$in_double" && continue
+    double_quote_opens "$char" "$COMMENT_PARSER_IN_SINGLE_QUOTE" && in_double="$(toggle_flag "$in_double")" && continue
+    shell_comment_at "$line" "$index" "$char" "$COMMENT_PARSER_IN_SINGLE_QUOTE" "$in_double" && return
   done
   return 1
+}
+
+comment_parser_single_quote_consumed() {
+  local line="${1:-}"
+  local index="${2:-0}"
+  local char="${3:-}"
+  local in_double="${4:-0}"
+  single_quote_opens "$char" "$in_double" || return 1
+  [[ "$COMMENT_PARSER_IN_SINGLE_QUOTE" == "0" ]] && COMMENT_PARSER_IN_ANSI_C_QUOTE="0" && ansi_c_quote_prefix_at "$line" "$index" && COMMENT_PARSER_IN_ANSI_C_QUOTE="1"
+  COMMENT_PARSER_IN_SINGLE_QUOTE="$(toggle_flag "$COMMENT_PARSER_IN_SINGLE_QUOTE")"
+  [[ "$COMMENT_PARSER_IN_SINGLE_QUOTE" == "0" ]] && COMMENT_PARSER_IN_ANSI_C_QUOTE="0"
+  return 0
+}
+
+comment_parser_escape_starts() {
+  [[ "${1:-}" == "\\" ]] || return 1
+  [[ "${2:-0}" == "0" || "${3:-0}" == "1" ]]
 }
 
 comment_escape_starts() {

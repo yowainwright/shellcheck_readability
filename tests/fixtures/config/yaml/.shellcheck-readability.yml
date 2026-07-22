@@ -5,3 +5,4 @@ select:
 comment-matchers:
   - '^ticket,[0-9]+$'
   - '^issue#[0-9]+$'
+  - "^file\\.sh$"
