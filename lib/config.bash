@@ -1,6 +1,12 @@
 # shellcheck shell=bash
 # shellcheck disable=SC2034
 
+CONFIG_PENDING_KEY=""
+CONFIG_PENDING_VALUES=()
+CONFIG_ASSIGNMENT_KEY=""
+CONFIG_ASSIGNMENT_VALUE=""
+YAML_DECODED_ESCAPE=""
+
 load_config() {
   local path
   path="$(resolve_config_path)"
@@ -24,6 +30,9 @@ search_config_upward() {
 
 config_in_dir() {
   local dir="${1:-}"
+  print_existing "$dir/.shellcheck-readabilityrc" && return 0
+  print_existing "$dir/.shellcheck-readability.yml" && return 0
+  print_existing "$dir/.shellcheck-readability.yaml" && return 0
   print_existing "$dir/shellcheck-readability.toml" && return 0
   print_existing "$dir/.shellcheck-readability.toml" && return 0
   print_existing "$dir/pyproject.toml"
@@ -52,20 +61,150 @@ read_config_lines() {
   local in_section="${2:-}"
   local line
   local -a lines
+  reset_pending_config_values
   mapfile -t lines < "$path"
   for line in "${lines[@]}"; do
     process_config_line "$line" "$in_section"
     in_section="$CONFIG_IN_SECTION"
   done
+  apply_pending_config_values
 }
 
 process_config_line() {
   local line="${1:-}"
   CONFIG_IN_SECTION="${2:-}"
-  line="$(strip_comment "$line")"
+  line="$(strip_config_comment "$line")"
   line="$(trim "$line")"
   [[ -z "$line" ]] && return
+  append_pending_config_value "$line" && return
+  apply_pending_config_values
+  open_config_value_list "$line" && return
   process_config_content "$line"
+}
+
+strip_config_comment() {
+  local line="${1:-}"
+  local index
+  index="$(config_comment_index "$line")"
+  print_config_without_comment "$line" "$index"
+}
+
+print_config_without_comment() {
+  local line="${1:-}"
+  local index="${2:-}"
+  [[ -z "$index" ]] && printf '%s\n' "$line" && return
+  printf '%s\n' "${line:0:index}"
+}
+
+config_comment_index() {
+  local line="${1:-}"
+  local index char in_single="0" in_double="0" escaped="0"
+  for ((index = 0; index < ${#line}; index++)); do
+    char="${line:index:1}"
+    [[ "$escaped" == "1" ]] && escaped="0" && continue
+    [[ "$char" == "\\" && "$in_double" == "1" ]] && escaped="1" && continue
+    [[ "$char" == "'" && "$in_double" == "0" ]] && in_single=$((1 - in_single)) && continue
+    [[ "$char" == '"' && "$in_single" == "0" ]] && in_double=$((1 - in_double)) && continue
+    [[ "$char" == "#" && "$in_single$in_double" == "00" ]] || continue
+    printf '%s\n' "$index"
+    return 0
+  done
+  return 1
+}
+
+append_pending_config_value() {
+  local line="${1:-}"
+  local value
+  [[ -n "$CONFIG_PENDING_KEY" ]] || return 1
+  [[ "$line" == "- "* ]] || return 1
+  value="$(parse_yaml_scalar "${line#- }")"
+  CONFIG_PENDING_VALUES+=("$value")
+}
+
+parse_yaml_scalar() {
+  local value="${1:-}"
+  local inner
+  value="$(trim "$value")"
+  case "$value" in
+    \"*\") inner="${value:1:$((${#value} - 2))}"; decode_yaml_double_quoted "$inner" ;;
+    \'*\') inner="${value:1:$((${#value} - 2))}"; printf '%s\n' "${inner//\'\'/\'}" ;;
+    *) printf '%s\n' "$value" ;;
+  esac
+}
+
+decode_yaml_double_quoted() {
+  local value="${1:-}"
+  local index char result="" escaped="0"
+  for ((index = 0; index < ${#value}; index++)); do
+    char="${value:index:1}"
+    [[ "$escaped" == "0" && "$char" == "\\" ]] && escaped="1" && continue
+    [[ "$escaped" == "0" ]] && result+="$char" && continue
+    set_yaml_decoded_escape "$char"
+    result+="$YAML_DECODED_ESCAPE"
+    escaped="0"
+  done
+  [[ "$escaped" == "1" ]] && result+="\\"
+  printf '%s\n' "$result"
+}
+
+set_yaml_decoded_escape() {
+  local char="${1:-}"
+  case "$char" in
+    '"') YAML_DECODED_ESCAPE='"' ;;
+    "\\") YAML_DECODED_ESCAPE="\\" ;;
+    n) YAML_DECODED_ESCAPE=$'\n' ;;
+    r) YAML_DECODED_ESCAPE=$'\r' ;;
+    t) YAML_DECODED_ESCAPE=$'\t' ;;
+    *) YAML_DECODED_ESCAPE="\\$char" ;;
+  esac
+}
+
+open_config_value_list() {
+  local line="${1:-}"
+  local key
+  [[ "$CONFIG_IN_SECTION" == "1" ]] || return 1
+  [[ "$line" == *: ]] || return 1
+  key="$(trim "${line%:}")"
+  config_array_key "$key" || return 1
+  CONFIG_PENDING_KEY="$key"
+  CONFIG_PENDING_VALUES=()
+}
+
+apply_pending_config_values() {
+  local array_name
+  [[ -n "$CONFIG_PENDING_KEY" ]] || return
+  array_name="$(config_array_name "$CONFIG_PENDING_KEY")"
+  replace_config_array "$array_name" "${CONFIG_PENDING_VALUES[@]}"
+  reset_pending_config_values
+}
+
+config_array_name() {
+  local key="${1:-}"
+  config_array_key "$key" || return 1
+  key="${key//-/_}"
+  printf '%s\n' "${key^^}"
+}
+
+replace_config_array() {
+  local array_name="${1:-}"
+  shift
+  local -n target_ref="$array_name"
+  target_ref=("$@")
+}
+
+reset_pending_config_values() {
+  CONFIG_PENDING_KEY=""
+  CONFIG_PENDING_VALUES=()
+}
+
+config_array_key() {
+  case "${1:-}" in
+    select|ignore|exclude) return 0 ;;
+    executable-entry-patterns|direct-shell-entry-patterns|executable-runtimes) return 0 ;;
+    comment-matchers|comment-prefix-identifiers|comment-suffix-identifiers) return 0 ;;
+    automated-comment-identifiers) return 0 ;;
+  esac
+  return 1
 }
 
 process_config_content() {
@@ -87,10 +226,30 @@ update_config_section() {
 
 apply_config_assignment() {
   local line="${1:-}"
-  local key value
-  key="$(trim "${line%%=*}")"
-  value="$(trim "${line#*=}")"
-  apply_config_value "$key" "$value"
+  parse_config_assignment "$line" || return
+  apply_config_value "$CONFIG_ASSIGNMENT_KEY" "$CONFIG_ASSIGNMENT_VALUE"
+}
+
+parse_config_assignment() {
+  local line="${1:-}"
+  parse_equals_config_assignment "$line" && return
+  parse_colon_config_assignment "$line"
+}
+
+parse_equals_config_assignment() {
+  local line="${1:-}"
+  local equals_pattern='^([A-Za-z0-9-]+)[[:space:]]*=[[:space:]]*(.*)$'
+  [[ "$line" =~ $equals_pattern ]] || return 1
+  CONFIG_ASSIGNMENT_KEY="${BASH_REMATCH[1]}"
+  CONFIG_ASSIGNMENT_VALUE="${BASH_REMATCH[2]}"
+}
+
+parse_colon_config_assignment() {
+  local line="${1:-}"
+  local colon_pattern='^([A-Za-z0-9-]+)[[:space:]]*:[[:space:]]*(.*)$'
+  [[ "$line" =~ $colon_pattern ]] || return 1
+  CONFIG_ASSIGNMENT_KEY="${BASH_REMATCH[1]}"
+  CONFIG_ASSIGNMENT_VALUE="${BASH_REMATCH[2]}"
 }
 
 apply_config_value() {
@@ -137,6 +296,7 @@ apply_comment_config_value() {
     comment-matchers) reset_array_from_csv COMMENT_MATCHERS "$value" ;;
     comment-prefix-identifiers) reset_array_from_csv COMMENT_PREFIX_IDENTIFIERS "$value" ;;
     comment-suffix-identifiers) reset_array_from_csv COMMENT_SUFFIX_IDENTIFIERS "$value" ;;
+    automated-comment-identifiers) reset_array_from_csv AUTOMATED_COMMENT_IDENTIFIERS "$value" ;;
     *) return 1 ;;
   esac
 }

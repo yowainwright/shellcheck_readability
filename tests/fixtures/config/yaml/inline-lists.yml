@@ -1,0 +1,1 @@
+comment-matchers: ['^foo,(bar|baz)$', '^issue#[0-9]+$']

@@ -1,5 +1,20 @@
 # shellcheck-readability
 
+<!-- badges derived from .github/workflows, GitHub tags, and LICENSE -->
+[![CI][ci-badge]][ci-workflow]
+[![Homebrew][homebrew-badge]][homebrew-workflow]
+[![Version][version-badge]][tags]
+[![License][license-badge]][license]
+
+[ci-badge]: /yowainwright/shellcheck_readability/actions/workflows/ci.yml/badge.svg
+[ci-workflow]: /yowainwright/shellcheck_readability/actions/workflows/ci.yml
+[homebrew-badge]: /yowainwright/shellcheck_readability/actions/workflows/homebrew.yml/badge.svg
+[homebrew-workflow]: /yowainwright/shellcheck_readability/actions/workflows/homebrew.yml
+[version-badge]: https://img.shields.io/github/v/tag/yowainwright/shellcheck_readability
+[tags]: /yowainwright/shellcheck_readability/tags
+[license-badge]: https://img.shields.io/github/license/yowainwright/shellcheck_readability
+[license]: /yowainwright/shellcheck_readability/blob/main/LICENSE
+
 Shell readability checks that sit beside ShellCheck.
 
 ShellCheck should own correctness, portability, quoting, and shell semantics. This project focuses on reviewability: control-flow depth, operator-heavy expressions, long functions, function-first script shape, defaulted function args, repeated comparisons, direct shell smoke tests, and patterns that make scripts harder to scan.
@@ -13,36 +28,11 @@ brew tap yowainwright/shellcheck_readability
 brew install --HEAD shellcheck-readability
 ```
 
-## Use
-
-```sh
-bin/shellcheck-readability check scripts tests
-bin/shellcheck-readability check . --select LEG001,LEG002 --ignore LEG038
-bin/shellcheck-readability check . --output-format json
-```
-
-## Configuration
-
-Configuration can live in `shellcheck-readability.toml`, `.shellcheck-readability.toml`, or `[tool.shellcheck-readability]` in `pyproject.toml`.
-
-```toml
-max-expression-operators = 4
-max-if-operators = 0
-max-control-flow-depth = 3
-max-function-lines = 20
-min-case-chain-length = 3
-min-object-lookup-chain-length = 3
-min-dirname-match-depth = 3
-comment-matchers = []
-comment-prefix-identifiers = []
-comment-suffix-identifiers = []
-```
-
-Selectors use the same model as the other legibility tools: `select`, `ignore`, rule codes, rule names, and `LEG`.
-
-## Implemented Rules
+## Rules
 
 Only implemented rules are listed here. Each rule links to its do / don't diff example.
+
+<!-- implemented rule codes and names from lib/rules.bash -->
 
 | Code | Rule | Summary |
 | --- | --- | --- |
@@ -62,7 +52,9 @@ Only implemented rules are listed here. Each rule links to its do / don't diff e
 | [`LEG038`](#max-function-lines-diff) | `max-function-lines` | Keep shell functions within a focused line budget. |
 | [`LEG039`](#prefer-functions-diff) | `prefer-functions` | Prefer named functions over top-level script logic. |
 | [`LEG040`](#use-defaults-in-functions-diff) | `use-defaults-in-functions` | Use defaulted or guarded positional args in functions. |
-| [`LEG041`](#no-unmatched-comments-diff) | `no-unmatched-comments` | Require comments to match configured ownership markers. |
+| [`LEG041`](#no-unmatched-comments-diff) | `no-unmatched-comments` | Policy opt-in. Reject comments without a configured matcher or identifier. |
+| [`LEG042`](#no-automated-comment-attribution-diff) | `no-automated-comment-attribution` | Policy opt-in. Reject explicit automated attribution signatures. |
+| [`LEG043`](#no-stacked-comments-diff) | `no-stacked-comments` | Policy opt-in. Reject comments stacked on consecutive lines. |
 
 ---
 
@@ -480,13 +472,15 @@ None.
 
 ---
 
+<!-- comment rule behavior from lib/rules.bash and lib/lint.bash -->
+
 <a id="no-unmatched-comments"></a>
 
 ### `no-unmatched-comments`
 
 Reject comments that do not match a configured regular-expression matcher, prefix identifier, or suffix identifier.
 
-Shebangs, ShellCheck directives, and `noqa` directives are ignored. No matcher or identifier is configured by default, so selecting this rule rejects ordinary comments.
+Shebangs, ShellCheck directives, and `noqa` directives are ignored. No matcher or identifier is configured by default, so selecting this rule directly rejects ordinary comments.
 
 #### options
 
@@ -503,12 +497,103 @@ Shebangs, ShellCheck directives, and `noqa` directives are ignored. No matcher o
 + require_target
 ```
 
-With `HUMAN` as an allowed prefix identifier:
+With `KEEP` as an allowed prefix identifier:
 
 ```diff
 - # preserve the legacy response order
-+ # HUMAN: preserve the legacy response order
++ # KEEP: preserve the legacy response order
 ```
+
+---
+
+<a id="no-automated-comment-attribution"></a>
+
+### `no-automated-comment-attribution`
+
+Reject explicit automated authorship and generation signatures in comments. Ordinary references to the configured technologies are unchanged.
+
+#### options
+
+- `automated-comment-identifiers`: case-insensitive names treated as automated sources. Default: `ai`, `chatgpt`, `claude`, `codex`, `copilot`, `gemini`, `gpt`, `llm`, and `openai`.
+
+<a id="no-automated-comment-attribution-diff"></a>
+
+#### do / don't
+
+```diff
+- # <configured identifier>-generated.
++ retry_in_provider_order
+```
+
+Structured `@author` tags and phrases such as `generated by <identifier>` or `<identifier>-generated` are rejected. Unmarked prose is not classified.
+
+---
+
+<a id="no-stacked-comments"></a>
+
+### `no-stacked-comments`
+
+Report the second and subsequent comments on consecutive lines. A blank or non-comment line breaks the stack. Shebangs, ShellCheck directives, and `noqa` directives are ignored.
+
+This rule has no options.
+
+<a id="no-stacked-comments-diff"></a>
+
+#### do / don't
+
+```diff
+- # Retry every failed request.
+  # Retry requests that fail during regional failover.
+```
+
+## Recipes
+
+The comment rules are explicit policy opt-ins and are excluded from broad selectors. Put the policy in a supported RC, YAML, or TOML file and select the rules directly by code or name.
+
+```yaml
+select: [LEG, LEG041, LEG042, LEG043]
+comment-matchers:
+  - '(^|[^[:alnum:]_])(ENG|OPS)-[0-9]+([^[:alnum:]_]|$)'
+comment-prefix-identifiers: [KEEP]
+comment-suffix-identifiers: ["@keep"]
+```
+
+This rejects unmarked comments, explicit automated attribution, and adjacent comments. Configure identifiers only for established repository conventions; do not add a marker solely to make a new comment pass.
+
+Use `--exit-zero` for advisory feedback. Enforcement should use the same committed configuration without `--exit-zero`.
+
+## Use
+
+```sh
+bin/shellcheck-readability check scripts tests
+bin/shellcheck-readability check . --select LEG001,LEG002 --ignore LEG038
+bin/shellcheck-readability check . --output-format json
+```
+
+## Configuration
+
+Configuration is loaded from the first matching file found while searching upward:
+
+- `.shellcheck-readabilityrc` with `key=value` or `key: value` assignments.
+- `.shellcheck-readability.yml` or `.shellcheck-readability.yaml` with YAML mappings and inline or block lists.
+- `shellcheck-readability.toml` or `.shellcheck-readability.toml` with TOML assignments.
+
+```toml
+max-expression-operators = 4
+max-if-operators = 0
+max-control-flow-depth = 3
+max-function-lines = 20
+min-case-chain-length = 3
+min-object-lookup-chain-length = 3
+min-dirname-match-depth = 3
+comment-matchers = []
+comment-prefix-identifiers = []
+comment-suffix-identifiers = []
+automated-comment-identifiers = ["ai", "chatgpt", "claude", "codex", "copilot", "gemini", "gpt", "llm", "openai"]
+```
+
+Selectors use the same model as the other legibility tools: `select`, `ignore`, rule codes, rule names, and `LEG`.
+Comment rules are policy opt-ins and are excluded from the broad `LEG` and `all` selectors.
 
 ## Rule Function Testing
 
@@ -521,6 +606,9 @@ check_no_bool_literal_args "example.sh" "9" 'create_user "$name" true false'
 check_prefer_functions "example.sh" "5" "docker build ."
 check_use_defaults_in_functions "example.sh" "6" 'local target="$1"'
 check_no_unmatched_comments "example.sh" "4" "# explain this branch"
+check_no_automated_comment_attribution "example.sh" "4" "# Generated by Codex."
+check_no_stacked_comments "example.sh" "4" "# First comment."
+check_no_stacked_comments "example.sh" "5" "# Second comment."
 ```
 
 ## Tests

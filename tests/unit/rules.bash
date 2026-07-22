@@ -12,6 +12,9 @@ source "$ROOT_DIR/lib/defaults.bash"
 # shellcheck source=../../lib/util.bash
 source "$ROOT_DIR/lib/util.bash"
 # shellcheck disable=SC1091
+# shellcheck source=../../lib/config.bash
+source "$ROOT_DIR/lib/config.bash"
+# shellcheck disable=SC1091
 # shellcheck source=../../lib/rules.bash
 source "$ROOT_DIR/lib/rules.bash"
 # shellcheck disable=SC1091
@@ -22,10 +25,62 @@ source "$ROOT_DIR/lib/files.bash"
 source "$ROOT_DIR/lib/lint.bash"
 
 main() {
+  test_version_metadata
   test_core_rules
   test_function_rules
   test_comment_rules
+  test_config_formats
   printf '%s\n' "ok"
+}
+
+test_config_formats() {
+  test_config_fixture "rc" ".shellcheck-readabilityrc" "17"
+  test_config_fixture "yaml" ".shellcheck-readability.yml" "18"
+  test_config_fixture "toml" "shellcheck-readability.toml" "19"
+  test_yaml_config_list_values
+  test_inline_yaml_list_values
+}
+
+test_config_fixture() {
+  local format="${1:-}"
+  local filename="${2:-}"
+  local expected_max="${3:-}"
+  local dir path resolved
+  reset_test_state
+  dir="$ROOT_DIR/tests/fixtures/config/$format"
+  path="$dir/$filename"
+  resolved="$(config_in_dir "$dir")"
+  assert_equal "$path" "$resolved"
+  read_config_file "$path"
+  assert_equal "$expected_max" "$MAX_FUNCTION_LINES"
+  assert_equal "LEG LEG041" "${SELECT[*]}"
+}
+
+test_yaml_config_list_values() {
+  local path
+  reset_test_state
+  path="$ROOT_DIR/tests/fixtures/config/yaml/.shellcheck-readability.yml"
+  read_config_file "$path"
+  assert_equal "3" "${#COMMENT_MATCHERS[@]}"
+  assert_equal '^ticket,[0-9]+$' "${COMMENT_MATCHERS[0]}"
+  assert_equal '^issue#[0-9]+$' "${COMMENT_MATCHERS[1]}"
+  assert_equal '^file\.sh$' "${COMMENT_MATCHERS[2]}"
+}
+
+test_inline_yaml_list_values() {
+  local path
+  reset_test_state
+  path="$ROOT_DIR/tests/fixtures/config/yaml/inline-lists.yml"
+  read_config_file "$path"
+  assert_equal "2" "${#COMMENT_MATCHERS[@]}"
+  assert_equal '^foo,(bar|baz)$' "${COMMENT_MATCHERS[0]}"
+  assert_equal '^issue#[0-9]+$' "${COMMENT_MATCHERS[1]}"
+}
+
+test_version_metadata() {
+  local reported
+  reported="$("$ROOT_DIR/bin/shellcheck-readability" --version)"
+  assert_equal "0.2.0" "$reported"
 }
 
 test_core_rules() {
@@ -55,6 +110,12 @@ test_function_rules() {
 }
 
 test_comment_rules() {
+  test_comment_matching_rules
+  test_comment_stacking_rules
+  test_comment_attribution_rules
+}
+
+test_comment_matching_rules() {
   test_no_unmatched_comments
   test_no_unmatched_comments_allows_prefix_identifier
   test_no_unmatched_comments_allows_suffix_identifier
@@ -63,9 +124,64 @@ test_comment_rules() {
   test_no_unmatched_comments_rejects_partial_identifiers
   test_no_unmatched_comments_ignores_directives
   test_no_unmatched_comments_skips_quoted_hashes
+  test_comment_rules_are_opt_in
+  test_comment_rule_names_select_explicitly
+  test_comment_rules_cache_disabled_state
+}
+
+test_comment_stacking_rules() {
+  test_no_stacked_comments
+  test_no_stacked_comments_rule_function
+  test_no_stacked_comments_reports_each_addition
+  test_no_stacked_comments_allows_separation
+  test_no_stacked_comments_ignores_directives
+  test_no_stacked_comments_ignores_non_comments
+  test_no_stacked_comments_selects_by_name
+}
+
+test_comment_attribution_rules() {
+  test_comment_attribution_matching
+  test_comment_syntax_scanner
+}
+
+test_comment_attribution_matching() {
+  test_no_automated_comment_attribution
+  test_no_automated_comment_attribution_detects_author
+  test_no_automated_comment_attribution_allows_references
+  test_no_automated_comment_attribution_allows_mid_phrase_identifiers
+  test_no_automated_comment_attribution_detects_article_signature
+  test_no_automated_comment_attribution_detects_trailing_prose
+  test_no_automated_comment_attribution_detects_conjunction
+  test_no_automated_comment_attribution_supports_custom_identifiers
+  test_no_automated_comment_attribution_allows_empty_identifiers
+  test_no_automated_comment_attribution_ignores_directives
+  test_no_automated_comment_attribution_skips_quoted_hashes
+}
+
+test_comment_syntax_scanner() {
+  test_scan_line_runs_comment_policy
+  test_scan_line_skips_heredoc_payload
+  test_scan_line_skips_tab_stripped_heredoc_payload
+  test_scan_line_closes_escaped_heredoc
+  test_scan_line_closes_quoted_heredoc_with_spaces
+  test_scan_line_defers_heredoc_across_continuation
+  test_scan_line_detects_quoted_command_substitution_heredoc
+  test_scan_line_detects_comment_in_case_arm_substitution
+  test_scan_line_skips_ansi_c_quoted_hash
+  test_scan_line_detects_comment_in_backtick_substitution
+  test_scan_line_preserves_multiline_quote_state
 }
 
 reset_test_state() {
+  reset_test_config
+  init_defaults
+  reset_test_diagnostics
+  CURRENT_LINE_TEXT=""
+  invalidate_comment_rule_state
+  reset_scan_state "example.sh"
+}
+
+reset_test_config() {
   SELECT=()
   IGNORE=()
   EXCLUDE=()
@@ -75,15 +191,16 @@ reset_test_state() {
   COMMENT_MATCHERS=()
   COMMENT_PREFIX_IDENTIFIERS=()
   COMMENT_SUFFIX_IDENTIFIERS=()
-  init_defaults
+  AUTOMATED_COMMENT_IDENTIFIERS=()
+}
+
+reset_test_diagnostics() {
   DIAG_CODES=()
   DIAG_PATHS=()
   DIAG_LINES=()
   DIAG_COLUMNS=()
   DIAG_RULES=()
   DIAG_MESSAGES=()
-  CURRENT_LINE_TEXT=""
-  reset_scan_state "example.sh"
 }
 
 test_hoist_if_operators() {
@@ -225,33 +342,38 @@ test_inline_function_does_not_leak_function_state() {
 
 test_no_unmatched_comments() {
   reset_test_state
+  SELECT=("LEG041")
   check_no_unmatched_comments "example.sh" "4" "# explain this branch"
   assert_has_code "LEG041"
 }
 
 test_no_unmatched_comments_allows_prefix_identifier() {
   reset_test_state
-  COMMENT_PREFIX_IDENTIFIERS+=("HUMAN")
-  check_no_unmatched_comments "example.sh" "4" "# HUMAN: legacy API order"
+  SELECT=("LEG041")
+  COMMENT_PREFIX_IDENTIFIERS+=("KEEP")
+  check_no_unmatched_comments "example.sh" "4" "# KEEP: legacy API order"
   assert_no_diagnostics
 }
 
 test_no_unmatched_comments_allows_suffix_identifier() {
   reset_test_state
-  COMMENT_SUFFIX_IDENTIFIERS+=("@owned")
-  check_no_unmatched_comments "example.sh" "4" 'deploy "$target" # preserve order @owned'
+  SELECT=("LEG041")
+  COMMENT_SUFFIX_IDENTIFIERS+=("@keep")
+  check_no_unmatched_comments "example.sh" "4" 'deploy "$target" # preserve order @keep'
   assert_no_diagnostics
 }
 
 test_no_unmatched_comments_allows_exact_suffix_identifier() {
   reset_test_state
-  COMMENT_SUFFIX_IDENTIFIERS+=("@owned")
-  check_no_unmatched_comments "example.sh" "4" "# @owned"
+  SELECT=("LEG041")
+  COMMENT_SUFFIX_IDENTIFIERS+=("@keep")
+  check_no_unmatched_comments "example.sh" "4" "# @keep"
   assert_no_diagnostics
 }
 
 test_no_unmatched_comments_allows_matcher() {
   reset_test_state
+  SELECT=("LEG041")
   COMMENT_MATCHERS+=("ENG-[0-9]+")
   check_no_unmatched_comments "example.sh" "4" "# ENG-482 tracks this branch"
   assert_no_diagnostics
@@ -259,14 +381,16 @@ test_no_unmatched_comments_allows_matcher() {
 
 test_no_unmatched_comments_rejects_partial_identifiers() {
   reset_test_state
-  COMMENT_PREFIX_IDENTIFIERS+=("HUMAN")
-  COMMENT_SUFFIX_IDENTIFIERS+=("@owned")
-  check_no_unmatched_comments "example.sh" "4" "# HUMANIZED generated not@owned"
+  SELECT=("LEG041")
+  COMMENT_PREFIX_IDENTIFIERS+=("KEEP")
+  COMMENT_SUFFIX_IDENTIFIERS+=("@keep")
+  check_no_unmatched_comments "example.sh" "4" "# KEEPING generated not@keep"
   assert_has_code "LEG041"
 }
 
 test_no_unmatched_comments_ignores_directives() {
   reset_test_state
+  SELECT=("LEG041")
   check_no_unmatched_comments "example.sh" "1" "#!/usr/bin/env bash"
   check_no_unmatched_comments "example.sh" "2" "# shellcheck disable=SC1091"
   check_no_unmatched_comments "example.sh" "3" "# noqa: LEG041"
@@ -275,8 +399,362 @@ test_no_unmatched_comments_ignores_directives() {
 
 test_no_unmatched_comments_skips_quoted_hashes() {
   reset_test_state
+  SELECT=("LEG041")
   check_no_unmatched_comments "example.sh" "7" "printf '%s\n' '#!/usr/bin/env bash'"
   assert_no_diagnostics
+}
+
+test_no_stacked_comments() {
+  reset_test_state
+  SELECT=("LEG043")
+  scan_line "example.sh" "1" "# First comment."
+  scan_line "example.sh" "2" "# Second comment."
+  assert_equal "1" "${#DIAG_CODES[@]}"
+  assert_has_code "LEG043"
+}
+
+test_no_stacked_comments_rule_function() {
+  reset_test_state
+  SELECT=("LEG043")
+  check_no_stacked_comments "example.sh" "1" "# First comment."
+  check_no_stacked_comments "example.sh" "2" "# Second comment."
+  assert_has_code "LEG043"
+}
+
+test_no_stacked_comments_reports_each_addition() {
+  reset_test_state
+  SELECT=("LEG043")
+  scan_line "example.sh" "1" "# First comment."
+  scan_line "example.sh" "2" "# Second comment."
+  scan_line "example.sh" "3" "# Third comment."
+  assert_equal "2" "${#DIAG_CODES[@]}"
+}
+
+test_no_stacked_comments_allows_separation() {
+  reset_test_state
+  SELECT=("LEG043")
+  scan_line "example.sh" "1" "# First comment."
+  scan_line "example.sh" "3" "# Second comment."
+  scan_line "example.sh" "4" "printf '%s\n' value"
+  scan_line "example.sh" "5" "# Third comment."
+  assert_no_diagnostics
+}
+
+test_no_stacked_comments_ignores_directives() {
+  reset_test_state
+  SELECT=("LEG043")
+  scan_line "example.sh" "1" "#!/usr/bin/env bash"
+  scan_line "example.sh" "2" "# shellcheck disable=SC1091"
+  scan_line "example.sh" "3" "# noqa: LEG043"
+  scan_line "example.sh" "4" "# First comment."
+  assert_no_diagnostics
+}
+
+test_no_stacked_comments_ignores_non_comments() {
+  reset_test_state
+  SELECT=("LEG043")
+  scan_line "example.sh" "1" "printf '%s\n' '# Quoted.'"
+  scan_line "example.sh" "2" "# First comment."
+  scan_line "example.sh" "3" "cat <<'EOF'"
+  scan_line "example.sh" "4" "# Heredoc payload."
+  scan_line "example.sh" "5" "EOF"
+  scan_line "example.sh" "6" "# Second comment."
+  assert_no_diagnostics
+}
+
+test_no_stacked_comments_selects_by_name() {
+  reset_test_state
+  SELECT=("no-stacked-comments")
+  scan_line "example.sh" "1" "# First comment."
+  scan_line "example.sh" "2" "# Second comment."
+  assert_has_code "LEG043"
+}
+
+test_comment_rules_are_opt_in() {
+  local identifier signature selector
+  identifier="code""x"
+  signature="# Generated by $identifier."
+  for selector in LEG all; do
+    reset_test_state
+    SELECT=("$selector")
+    check_no_unmatched_comments "example.sh" "4" "# explain this branch"
+    check_no_automated_comment_attribution "example.sh" "5" "$signature"
+    scan_line "example.sh" "6" "# First comment."
+    scan_line "example.sh" "7" "# Second comment."
+    assert_no_diagnostics
+  done
+}
+
+test_comment_rule_names_select_explicitly() {
+  reset_test_state
+  SELECT=("no-unmatched-comments")
+  check_no_unmatched_comments "example.sh" "4" "# explain this branch"
+  assert_has_code "LEG041"
+}
+
+test_comment_rules_cache_disabled_state() {
+  reset_test_state
+  prepare_comment_rule_state
+  assert_equal "0" "$COMMENT_RULES_ENABLED"
+  assert_equal "0" "$NO_UNMATCHED_COMMENTS_ENABLED"
+  assert_equal "0" "$NO_AUTOMATED_COMMENT_ATTRIBUTION_ENABLED"
+  assert_equal "0" "$NO_STACKED_COMMENTS_ENABLED"
+}
+
+test_no_automated_comment_attribution() {
+  reset_test_state
+  local identifier signature
+  identifier="code""x"
+  signature="# Generated by $identifier."
+  SELECT=("LEG042")
+  check_no_automated_comment_attribution "example.sh" "4" "$signature"
+  assert_has_code "LEG042"
+}
+
+test_no_automated_comment_attribution_detects_author() {
+  reset_test_state
+  local identifier signature
+  identifier="open""ai"
+  signature="# @AUTHOR: $identifier"
+  SELECT=("LEG042")
+  check_no_automated_comment_attribution "example.sh" "4" "$signature"
+  assert_has_code "LEG042"
+}
+
+test_no_automated_comment_attribution_allows_references() {
+  reset_test_state
+  SELECT=("LEG042")
+  check_no_automated_comment_attribution "example.sh" "4" "# Send the request to OpenAI."
+  check_no_automated_comment_attribution "example.sh" "5" "# Parse the AI response."
+  assert_no_diagnostics
+}
+
+test_no_automated_comment_attribution_allows_mid_phrase_identifiers() {
+  reset_test_state
+  local identifier author_reference pipeline_reference
+  identifier="a""i"
+  author_reference="# Written by an $identifier engineer."
+  pipeline_reference="# Generated by ${identifier}-assisted tooling."
+  SELECT=("LEG042")
+  check_no_automated_comment_attribution "example.sh" "4" "$author_reference"
+  check_no_automated_comment_attribution "example.sh" "5" "$pipeline_reference"
+  assert_no_diagnostics
+}
+
+test_no_automated_comment_attribution_detects_article_signature() {
+  reset_test_state
+  local identifier signature
+  identifier="a""i"
+  signature="# Generated by an $identifier."
+  SELECT=("LEG042")
+  check_no_automated_comment_attribution "example.sh" "4" "$signature"
+  assert_has_code "LEG042"
+}
+
+test_no_automated_comment_attribution_detects_trailing_prose() {
+  reset_test_state
+  local identifier signature
+  identifier="code""x"
+  signature="# Generated by $identifier; do not edit."
+  SELECT=("LEG042")
+  check_no_automated_comment_attribution "example.sh" "4" "$signature"
+  assert_has_code "LEG042"
+}
+
+test_no_automated_comment_attribution_detects_conjunction() {
+  reset_test_state
+  local identifier signature
+  identifier="code""x"
+  signature="# Generated by $identifier and reviewed by Alice."
+  SELECT=("LEG042")
+  check_no_automated_comment_attribution "example.sh" "4" "$signature"
+  assert_has_code "LEG042"
+}
+
+test_no_automated_comment_attribution_supports_custom_identifiers() {
+  reset_test_state
+  local identifier signature
+  identifier="robot"
+  signature="# ${identifier}-authored."
+  SELECT=("LEG042")
+  apply_comment_config_value "automated-comment-identifiers" "[\"$identifier\"]"
+  check_no_automated_comment_attribution "example.sh" "4" "$signature"
+  assert_has_code "LEG042"
+}
+
+test_no_automated_comment_attribution_allows_empty_identifiers() {
+  reset_test_state
+  local identifier signature
+  identifier="code""x"
+  signature="# Generated by $identifier."
+  SELECT=("LEG042")
+  apply_comment_config_value "automated-comment-identifiers" "[]"
+  check_no_automated_comment_attribution "example.sh" "4" "$signature"
+  assert_no_diagnostics
+}
+
+test_no_automated_comment_attribution_ignores_directives() {
+  reset_test_state
+  SELECT=("LEG042")
+  check_no_automated_comment_attribution "example.sh" "1" "#!/usr/bin/env bash"
+  check_no_automated_comment_attribution "example.sh" "2" "# shellcheck disable=SC1091"
+  check_no_automated_comment_attribution "example.sh" "3" "# noqa: LEG042"
+  assert_no_diagnostics
+}
+
+test_no_automated_comment_attribution_skips_quoted_hashes() {
+  reset_test_state
+  local identifier signature line
+  identifier="code""x"
+  signature="# Generated by $identifier."
+  line="printf '%s\n' '$signature'"
+  SELECT=("LEG042")
+  check_no_automated_comment_attribution "example.sh" "7" "$line"
+  assert_no_diagnostics
+}
+
+test_scan_line_runs_comment_policy() {
+  reset_test_state
+  local identifier signature
+  identifier="code""x"
+  signature="# Generated by $identifier."
+  SELECT=("LEG041" "LEG042")
+  scan_line "example.sh" "4" "$signature"
+  assert_has_code "LEG041"
+  assert_has_code "LEG042"
+}
+
+test_scan_line_skips_heredoc_payload() {
+  reset_test_state
+  local identifier signature
+  identifier="code""x"
+  signature="# Generated by $identifier."
+  SELECT=("LEG041" "LEG042")
+  scan_line "example.sh" "1" "cat <<'SCRIPT'"
+  scan_line "example.sh" "2" "$signature"
+  scan_line "example.sh" "3" "SCRIPT"
+  assert_no_diagnostics
+  scan_line "example.sh" "4" "$signature"
+  assert_has_code "LEG041"
+  assert_has_code "LEG042"
+}
+
+test_scan_line_skips_tab_stripped_heredoc_payload() {
+  reset_test_state
+  local identifier signature
+  identifier="code""x"
+  signature="# Generated by $identifier."
+  SELECT=("LEG041" "LEG042")
+  scan_line "example.sh" "1" "cat <<-'SCRIPT'"
+  scan_line "example.sh" "2" "$signature"
+  scan_line "example.sh" "3" $'\tSCRIPT'
+  assert_no_diagnostics
+}
+
+test_scan_line_closes_escaped_heredoc() {
+  reset_test_state
+  local identifier signature
+  identifier="code""x"
+  signature="# Generated by $identifier."
+  SELECT=("LEG042")
+  scan_line "example.sh" "1" "cat <<\\EOF"
+  scan_line "example.sh" "2" "$signature"
+  scan_line "example.sh" "3" "EOF"
+  assert_no_diagnostics
+  scan_line "example.sh" "4" "$signature"
+  assert_has_code "LEG042"
+}
+
+test_scan_line_closes_quoted_heredoc_with_spaces() {
+  reset_test_state
+  local identifier signature
+  identifier="code""x"
+  signature="# Generated by $identifier."
+  SELECT=("LEG042")
+  scan_line "example.sh" "1" "cat <<'END MARK'"
+  scan_line "example.sh" "2" "$signature"
+  scan_line "example.sh" "3" "END MARK"
+  assert_no_diagnostics
+  scan_line "example.sh" "4" "$signature"
+  assert_has_code "LEG042"
+}
+
+test_scan_line_defers_heredoc_across_continuation() {
+  reset_test_state
+  local identifier signature
+  identifier="code""x"
+  signature="# Generated by $identifier."
+  SELECT=("LEG042")
+  scan_line "example.sh" "1" 'cat <<EOF \'
+  scan_line "example.sh" "2" "$signature"
+  assert_equal "1" "${#DIAG_CODES[@]}"
+  scan_line "example.sh" "3" "$signature"
+  scan_line "example.sh" "4" "EOF"
+  assert_equal "1" "${#DIAG_CODES[@]}"
+  scan_line "example.sh" "5" "$signature"
+  assert_equal "2" "${#DIAG_CODES[@]}"
+}
+
+test_scan_line_detects_quoted_command_substitution_heredoc() {
+  reset_test_state
+  local identifier signature
+  identifier="code""x"
+  signature="# Generated by $identifier."
+  SELECT=("LEG042")
+  scan_line "example.sh" "1" "value=\"\$(cat <<'EOF'"
+  scan_line "example.sh" "2" "$signature"
+  scan_line "example.sh" "3" "EOF"
+  scan_line "example.sh" "4" ')"'
+  assert_no_diagnostics
+}
+
+test_scan_line_detects_comment_in_case_arm_substitution() {
+  reset_test_state
+  local identifier signature
+  identifier="code""x"
+  signature="# Generated by $identifier."
+  SELECT=("LEG042")
+  scan_line "example.sh" "1" 'value="$('
+  scan_line "example.sh" "2" '  case "$target" in'
+  scan_line "example.sh" "3" "    x) $signature"
+  assert_has_code "LEG042"
+}
+
+test_scan_line_skips_ansi_c_quoted_hash() {
+  reset_test_state
+  local identifier signature line
+  identifier="code""x"
+  signature="# Generated by $identifier."
+  line="value=\$'can\\'t $signature'"
+  SELECT=("LEG041" "LEG042")
+  scan_line "example.sh" "1" "$line"
+  assert_no_diagnostics
+}
+
+test_scan_line_detects_comment_in_backtick_substitution() {
+  reset_test_state
+  local identifier signature
+  identifier="code""x"
+  signature="# Generated by $identifier."
+  SELECT=("LEG042")
+  scan_line "example.sh" "1" 'value="`printf ok'
+  scan_line "example.sh" "2" "$signature"
+  scan_line "example.sh" "3" '`"'
+  assert_has_code "LEG042"
+}
+
+test_scan_line_preserves_multiline_quote_state() {
+  reset_test_state
+  local identifier signature
+  identifier="code""x"
+  signature="# Generated by $identifier."
+  SELECT=("LEG042")
+  scan_line "example.sh" "1" 'value="first line'
+  scan_line "example.sh" "2" "$signature"
+  scan_line "example.sh" "3" 'last line"'
+  assert_no_diagnostics
+  scan_line "example.sh" "4" "$signature"
+  assert_has_code "LEG042"
 }
 
 assert_has_code() {
@@ -292,6 +770,14 @@ assert_has_code() {
 assert_no_diagnostics() {
   [[ "${#DIAG_CODES[@]}" -eq 0 ]] && return
   printf 'expected no diagnostics, got %s\n' "${DIAG_CODES[*]}" >&2
+  exit 1
+}
+
+assert_equal() {
+  local expected="${1:-}"
+  local actual="${2:-}"
+  [[ "$actual" == "$expected" ]] && return
+  printf 'expected %s, got %s\n' "$expected" "$actual" >&2
   exit 1
 }
 

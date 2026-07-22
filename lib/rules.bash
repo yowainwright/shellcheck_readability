@@ -26,14 +26,49 @@ shell_rule_name() {
     LEG039) printf '%s\n' "prefer-functions" ;;
     LEG040) printf '%s\n' "use-defaults-in-functions" ;;
     LEG041) printf '%s\n' "no-unmatched-comments" ;;
+    LEG042) printf '%s\n' "no-automated-comment-attribution" ;;
+    LEG043) printf '%s\n' "no-stacked-comments" ;;
   esac
 }
 
 rule_enabled() {
   local code="${1:-}"
   selector_matches_any "$code" SELECT || return 1
+  comment_rule_selected "$code" || return 1
   selector_matches_any "$code" IGNORE && return 1
   return 0
+}
+
+comment_rule_selected() {
+  local code="${1:-}"
+  comment_rule_code "$code" || return 0
+  selector_explicitly_matches_any "$code" SELECT
+}
+
+comment_rule_code() {
+  case "${1:-}" in
+    LEG041|LEG042|LEG043) return 0 ;;
+  esac
+  return 1
+}
+
+selector_explicitly_matches_any() {
+  local code="${1:-}"
+  local array_name="${2:-}"
+  local selector
+  local -n selectors_ref="$array_name"
+  for selector in "${selectors_ref[@]}"; do
+    selector_explicitly_matches "$code" "$selector" && return 0
+  done
+  return 1
+}
+
+selector_explicitly_matches() {
+  local code="${1:-}"
+  local selector="${2:-}"
+  local name
+  name="$(rule_name "$code")"
+  [[ "$selector" == "$code" || "$selector" == "$name" ]]
 }
 
 selector_matches_any() {
