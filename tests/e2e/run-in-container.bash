@@ -15,7 +15,7 @@ assert_no_shellcheck() {
 }
 
 assert_version() {
-  [[ "$(shellcheck-readability --version)" == "0.2.0" ]] || fail "expected version 0.2.0"
+  [[ "$(shellcheck-legibility --version)" == "0.2.1" ]] || fail "expected version 0.2.1"
 }
 
 assert_text_diagnostic() {
@@ -47,7 +47,7 @@ write_fixture() {
 run_linter() {
   local format="${1:-}"
   set +e
-  OUTPUT="$(shellcheck-readability check sample/scripts/example.sh --output-format "$format" 2>&1)"
+  OUTPUT="$(shellcheck-legibility check sample/scripts/example.sh --output-format "$format" 2>&1)"
   STATUS="$?"
   set -u
 }

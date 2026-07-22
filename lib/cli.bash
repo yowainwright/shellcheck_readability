@@ -52,7 +52,7 @@ unknown_option() {
 }
 
 usage() {
-  printf '%s\n' "Usage: shellcheck-readability check [paths...] [options]"
+  printf '%s\n' "Usage: shellcheck-legibility check [paths...] [options]"
 }
 
 apply_cli_overrides() {

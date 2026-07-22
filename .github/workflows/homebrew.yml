@@ -14,8 +14,8 @@ jobs:
     name: Formula
     runs-on: macos-latest
     env:
-      FORMULA: shellcheck-readability
-      TAP: yowainwright/shellcheck_readability
+      FORMULA: shellcheck-legibility
+      TAP: yowainwright/shellcheck_legibility
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd

@@ -34,9 +34,9 @@ main() {
 }
 
 test_config_formats() {
-  test_config_fixture "rc" ".shellcheck-readabilityrc" "17"
-  test_config_fixture "yaml" ".shellcheck-readability.yml" "18"
-  test_config_fixture "toml" "shellcheck-readability.toml" "19"
+  test_config_fixture "rc" ".shellcheck-legibilityrc" "17"
+  test_config_fixture "yaml" ".shellcheck-legibility.yml" "18"
+  test_config_fixture "toml" "shellcheck-legibility.toml" "19"
   test_yaml_config_list_values
   test_inline_yaml_list_values
 }
@@ -59,7 +59,7 @@ test_config_fixture() {
 test_yaml_config_list_values() {
   local path
   reset_test_state
-  path="$ROOT_DIR/tests/fixtures/config/yaml/.shellcheck-readability.yml"
+  path="$ROOT_DIR/tests/fixtures/config/yaml/.shellcheck-legibility.yml"
   read_config_file "$path"
   assert_equal "4" "${#COMMENT_MATCHERS[@]}"
   assert_equal '^ticket,[0-9]+$' "${COMMENT_MATCHERS[0]}"
@@ -84,8 +84,8 @@ test_inline_yaml_list_values() {
 
 test_version_metadata() {
   local reported
-  reported="$("$ROOT_DIR/bin/shellcheck-readability" --version)"
-  assert_equal "0.2.0" "$reported"
+  reported="$("$ROOT_DIR/bin/shellcheck-legibility" --version)"
+  assert_equal "0.2.1" "$reported"
 }
 
 test_core_rules() {
