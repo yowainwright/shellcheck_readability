@@ -6,14 +6,14 @@
 [![Version][version-badge]][tags]
 [![License][license-badge]][license]
 
-[ci-badge]: /yowainwright/shellcheck_readability/actions/workflows/ci.yml/badge.svg
-[ci-workflow]: /yowainwright/shellcheck_readability/actions/workflows/ci.yml
-[homebrew-badge]: /yowainwright/shellcheck_readability/actions/workflows/homebrew.yml/badge.svg
-[homebrew-workflow]: /yowainwright/shellcheck_readability/actions/workflows/homebrew.yml
+[ci-badge]: https://github.com/yowainwright/shellcheck_readability/actions/workflows/ci.yml/badge.svg
+[ci-workflow]: https://github.com/yowainwright/shellcheck_readability/actions/workflows/ci.yml
+[homebrew-badge]: https://github.com/yowainwright/shellcheck_readability/actions/workflows/homebrew.yml/badge.svg
+[homebrew-workflow]: https://github.com/yowainwright/shellcheck_readability/actions/workflows/homebrew.yml
 [version-badge]: https://img.shields.io/github/v/tag/yowainwright/shellcheck_readability
-[tags]: /yowainwright/shellcheck_readability/tags
+[tags]: https://github.com/yowainwright/shellcheck_readability/tags
 [license-badge]: https://img.shields.io/github/license/yowainwright/shellcheck_readability
-[license]: /yowainwright/shellcheck_readability/blob/main/LICENSE
+[license]: https://github.com/yowainwright/shellcheck_readability/blob/main/LICENSE
 
 Shell readability checks that sit beside ShellCheck.
 
