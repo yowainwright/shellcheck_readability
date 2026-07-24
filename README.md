@@ -26,7 +26,7 @@ Requires Bash 4.3 or newer. ShellCheck is a development lint dependency, not a r
 ```sh
 brew tap yowainwright/shellcheck_legibility https://github.com/yowainwright/shellcheck_legibility
 brew trust --formula yowainwright/shellcheck_legibility/shellcheck-legibility
-brew install --HEAD shellcheck-legibility
+brew install shellcheck-legibility
 ```
 
 ## Rules
