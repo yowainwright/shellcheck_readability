@@ -31,6 +31,9 @@ jobs:
       - name: Install formula
         run: brew install --build-from-source "$FORMULA"
 
+      - name: Test system Bash compatibility
+        run: PATH=/usr/bin:/bin /bin/bash tests/unit/rules.bash
+
       - name: Test formula
         run: brew test "$FORMULA"
 
